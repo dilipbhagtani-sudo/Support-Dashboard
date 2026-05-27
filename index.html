@@ -1484,6 +1484,9 @@ function populateFilters() {
   const monthNames = { 1:'January',2:'February',3:'March',4:'April',5:'May',6:'June',7:'July',8:'August',9:'September',10:'October',11:'November',12:'December' };
   const months = [...new Set(allData.map(r => r['Month']).filter(Boolean))].sort((a,b)=>+a-+b);
   const msel = document.getElementById('month-select');
+  // Clear existing options (keep only the default "All Months")
+  while (msel.options.length > 1) msel.remove(1);
+  msel.value = 'all';
   months.forEach(m => {
     const opt = document.createElement('option');
     opt.value = m;
@@ -1494,6 +1497,8 @@ function populateFilters() {
   // Product (Studio / Vini)
   const products = [...new Set(allData.map(r => r['Product (Studio/Vini)']).filter(Boolean))].sort();
   const psel = document.getElementById('product-select');
+  while (psel.options.length > 1) psel.remove(1);
+  psel.value = 'all';
   products.forEach(p => {
     const opt = document.createElement('option');
     opt.value = p; opt.textContent = p;
@@ -1505,6 +1510,8 @@ function populateFilters() {
   const prios = [...new Set(allData.map(r => r['Priority']).filter(Boolean))]
     .sort((a,b) => { const ia=prioOrder.indexOf(a), ib=prioOrder.indexOf(b); return (ia<0?99:ia)-(ib<0?99:ib); });
   const prsel = document.getElementById('priority-select');
+  while (prsel.options.length > 1) prsel.remove(1);
+  prsel.value = 'all';
   prios.forEach(p => {
     const opt = document.createElement('option');
     opt.value = p; opt.textContent = p;
@@ -1526,6 +1533,8 @@ function populateFilters() {
   // Status (top filter)
   const statuses = [...new Set(allData.map(r => (r['Status']||'').trim()).filter(Boolean))].sort();
   const ssel = document.getElementById('status-select');
+  while (ssel.options.length > 1) ssel.remove(1);
+  ssel.value = 'all';
   statuses.forEach(st => {
     const opt = document.createElement('option');
     opt.value = st; opt.textContent = st;
