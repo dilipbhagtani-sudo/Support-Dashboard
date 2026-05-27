@@ -349,12 +349,11 @@
 
 <!-- UPLOAD SCREEN -->
 <div id="upload-screen">
-  <div class="upload-box" id="drop-zone">
-    <span class="upload-icon">📋</span>
-    <h2>Support Ticket Dashboard</h2>
-    <p>Drop your tickets CSV file here, or click to browse.<br/>All processing happens in your browser — no data leaves your machine.</p>
-    <label class="upload-btn" for="file-input">Choose CSV File</label>
-    <input type="file" id="file-input" accept=".csv"/>
+  <div class="upload-box" id="drop-zone" style="cursor:default; border-style:solid;">
+    <span class="upload-icon" id="load-icon" style="font-size:48px; display:block; margin-bottom:16px;">⏳</span>
+    <h2 id="load-title">Loading Dashboard</h2>
+    <p id="load-msg" style="margin-top:8px; color:var(--muted);">Fetching latest data from Google Sheets…</p>
+    <p id="load-error" style="margin-top:12px; color:var(--red); display:none; font-size:13px;"></p>
   </div>
 </div>
 
@@ -363,7 +362,7 @@
   <header>
     <div class="header-left">
       <h1>🎫 Support Ticket Dashboard</h1>
-      <p><span class="sync-dot"></span><span id="record-count">0</span> records loaded</p>
+      <p><span class="sync-dot"></span><span id="record-count">0</span> records loaded &nbsp;·&nbsp; <span id="last-synced" style="color:var(--muted);font-size:12px;"></span> <button id="refresh-btn" onclick="loadFromSheets()" style="margin-left:8px;background:#1e2a3a;border:1px solid #253044;color:var(--muted);border-radius:6px;padding:2px 10px;font-size:12px;cursor:pointer;" title="Reload data from Google Sheets">↻ Refresh</button></p>
     </div>
     <div class="header-right">
       <!-- MONTH FILTER -->
@@ -1431,28 +1430,54 @@ let charts = {};
 let ticketPage = 1;
 const PAGE_SIZE = 25;
 
-// ─── FILE UPLOAD ───────────────────────────────────────────────────────────────
-const dropZone = document.getElementById('drop-zone');
-const fileInput = document.getElementById('file-input');
+// ─── GOOGLE SHEETS AUTO-FETCH ─────────────────────────────────────────────────
+// To update: paste your Google Sheets published CSV URL below.
+// In Google Sheets: File → Share → Publish to web → select your sheet → CSV → Publish
+const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTcr9yrZtmboI-pd5P0gfB7aoxtfeRP3SnbeZDdTasiHivy7allzTL0H7HF6M8jUXSubkbi0kwSvmTE/pub?output=csv';
 
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
-dropZone.addEventListener('drop', e => { e.preventDefault(); dropZone.classList.remove('drag-over'); const f = e.dataTransfer.files[0]; if (f) loadCSV(f); });
-fileInput.addEventListener('change', e => { const f = e.target.files[0]; if (f) loadCSV(f); });
+function loadFromSheets() {
+  const loadIcon  = document.getElementById('load-icon');
+  const loadTitle = document.getElementById('load-title');
+  const loadMsg   = document.getElementById('load-msg');
+  const loadError = document.getElementById('load-error');
 
-function loadCSV(file) {
-  Papa.parse(file, {
-    header: true, skipEmptyLines: true,
+  // Show upload screen while loading
+  document.getElementById('upload-screen').style.display = 'flex';
+  document.getElementById('dashboard').style.display = 'none';
+  if (loadIcon)  loadIcon.textContent = '⏳';
+  if (loadTitle) loadTitle.textContent = 'Loading Dashboard';
+  if (loadMsg)   loadMsg.textContent   = 'Fetching latest data from Google Sheets…';
+  if (loadError) loadError.style.display = 'none';
+
+  Papa.parse(SHEETS_CSV_URL, {
+    download: true,
+    header: true,
+    skipEmptyLines: true,
     complete: r => {
       allData = normalizeData(r.data);
       computeRefDate();
       populateFilters();
       document.getElementById('upload-screen').style.display = 'none';
       document.getElementById('dashboard').style.display = 'block';
+      const now = new Date();
+      const synced = document.getElementById('last-synced');
+      if (synced) synced.textContent = 'Last synced: ' + now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
       applyFilters();
+    },
+    error: (err) => {
+      if (loadIcon)  loadIcon.textContent = '❌';
+      if (loadTitle) loadTitle.textContent = 'Could not load data';
+      if (loadMsg)   loadMsg.textContent   = 'Check that your Google Sheet is published as CSV and the URL is correct.';
+      if (loadError) { loadError.textContent = err.message || String(err); loadError.style.display = 'block'; }
     }
   });
 }
+
+// Auto-load on page ready (after auth gate clears)
+document.addEventListener('DOMContentLoaded', function() {
+  // Small delay so auth gate renders first
+  setTimeout(loadFromSheets, 300);
+});
 
 // ─── FILTER POPULATION ─────────────────────────────────────────────────────────
 function populateFilters() {
