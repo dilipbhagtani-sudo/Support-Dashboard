@@ -117,7 +117,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .ticket-table td{padding:9px 12px;border-bottom:1px solid var(--border);vertical-align:middle;}
 .ticket-table tr:last-child td{border-bottom:none;}
 .ticket-table tr:hover td{background:var(--surface2);}
-.tid{font-family:var(--mono);font-size:12px;color:var(--accent);}
+.tid{font-family:var(--mono);font-size:12px;color:var(--accent);text-decoration:none;}
+.tid:hover{text-decoration:underline;color:#60a5fa;}
 .subject{max-width:220px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text);}
 .priority-badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;}
 .prio-urgent{background:#ef444422;color:#ef4444;}
@@ -196,6 +197,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       </select>
       <select class="filter-select" id="category-select" onchange="renderAll()">
         <option value="all">All Categories</option>
+      </select>
+      <select class="filter-select" id="enttype-select" onchange="renderAll()">
+        <option value="all">All Ent Types</option>
       </select>
     </div>
   </div>
@@ -379,6 +383,13 @@ function populateFilters(){
   [...new Set(allData.map(r=>(r['Category/Type']||'').trim()).filter(Boolean))].sort().forEach(c=>{
     const o=document.createElement('option');o.value=c;o.textContent=c;csel.appendChild(o);
   });
+  // ENT Type
+  const esel=document.getElementById('enttype-select');
+  while(esel.options.length>1)esel.remove(1);
+  esel.value='all';
+  [...new Set(allData.map(r=>(r['ENT Type']||'').trim()).filter(Boolean))].sort().forEach(e=>{
+    const o=document.createElement('option');o.value=e;o.textContent=e;esel.appendChild(o);
+  });
 }
 
 // ─── FILTER ───────────────────────────────────────────────────────────────────
@@ -387,11 +398,13 @@ function getFiltered(){
   const pf=document.getElementById('product-select').value;
   const prf=document.getElementById('priority-select').value;
   const cf=document.getElementById('category-select').value;
+  const ef=document.getElementById('enttype-select').value;
   return allData.filter(r=>{
     if(mf!=='all'&&r['Month']!==mf)return false;
     if(pf!=='all'&&r['Product (Studio/Vini)']!==pf)return false;
     if(prf!=='all'&&r['Priority']!==prf)return false;
     if(cf!=='all'&&(r['Category/Type']||'').trim()!==cf)return false;
+    if(ef!=='all'&&(r['ENT Type']||'').trim()!==ef)return false;
     return true;
   });
 }
@@ -690,7 +703,7 @@ function renderDetail(cat,tickets){
             const ent=(r['Enterprise Name']||'—').replace(/"/g,"'");
             const subj=(r['Subject']||'—').replace(/"/g,"'");
             return `<tr>
-              <td><span class="tid">#${r['Ticket ID']||'—'}</span></td>
+              <td><a class="tid" href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank" rel="noopener">#${r['Ticket ID']||'—'}</a></td>
               <td><span class="subject" title="${subj}">${r['Subject']||'—'}</span></td>
               <td style="font-size:12px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${ent}">${r['Enterprise Name']||'—'}</td>
               <td style="font-size:12px;">${r['Product (Studio/Vini)']||'—'}</td>
