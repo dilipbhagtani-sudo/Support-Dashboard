@@ -7,6 +7,7 @@
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <style>
 :root {
   --bg:#080c14; --surface:#0e1420; --surface2:#141b2d; --surface3:#1a2236;
@@ -559,16 +560,64 @@ function buildAgingSection(agCounts, total, title){
 }
 
 // ─── CHART HELPER ─────────────────────────────────────────────────────────────
+// Register datalabels plugin once
+if(window.ChartDataLabels){try{Chart.register(ChartDataLabels);}catch(e){}}
+
 function renderChart(id,type,labels,datasets,opts={}){
   if(charts[id]){try{charts[id].destroy();}catch(e){}}
   const canvas=document.getElementById(id);if(!canvas)return;
+
+  const isDoughnut = type==='doughnut';
+  const isHBar = opts.indexAxis==='y';
+
+  // Datalabels config per chart type
+  const dlConfig = isDoughnut ? {
+    // On doughnut slices: show count inside if slice is big enough
+    color:'#fff',
+    font:{weight:'600',size:12},
+    formatter:(val)=>val>0?val:'',
+    anchor:'center',align:'center',
+  } : isHBar ? {
+    // Horizontal bar: show value at end of bar
+    color:'#e2e8f0',
+    font:{weight:'600',size:11},
+    formatter:(val)=>val>0?val:'',
+    anchor:'end',align:'end',
+    clamp:true,
+    offset:2,
+  } : {
+    // Vertical bar: show value on top
+    color:'#e2e8f0',
+    font:{weight:'600',size:11},
+    formatter:(val)=>val>0?val:'',
+    anchor:'end',align:'top',
+    offset:2,
+  };
+
+  // Deep-merge plugins so caller overrides (e.g. legend position) don't wipe datalabels
+  const {plugins: callerPlugins={}, scales: callerScales, indexAxis, layout: callerLayout, ...restOpts} = opts;
+  const mergedPlugins = {
+    legend:{display:false},
+    tooltip:{callbacks:{label:ctx=>' '+(isDoughnut?ctx.parsed:ctx.parsed.y??ctx.parsed.x??ctx.parsed)+(isDoughnut?' tickets':'')}},
+    ...callerPlugins,
+    datalabels: dlConfig,   // always last — never overwritten
+  };
+  const mergedScales = isDoughnut ? {} : {
+    x:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},
+    y:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},
+    ...(callerScales||{}),
+  };
+
   charts[id]=new Chart(canvas,{
-    type,data:{labels,datasets},
+    type,
+    data:{labels,datasets},
     options:{
       responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>' '+ctx.parsed+(type==='bar'?'':' tickets')}}},
-      scales:type==='doughnut'?{}:{x:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},y:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}}},
-      ...opts
+      layout:{ padding:{ right:isHBar?32:0, top:!isDoughnut&&!isHBar?22:0 }, ...(callerLayout||{}) },
+      ...(indexAxis?{indexAxis}:{}),
+      plugins: mergedPlugins,
+      scales: mergedScales,
+      ...restOpts,
     }
   });
 }
