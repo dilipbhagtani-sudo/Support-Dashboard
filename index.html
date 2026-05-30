@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>Spyne Pendency Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
 <style>
@@ -136,6 +135,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 .ts-label{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;}
 .ts-value{font-size:20px;font-weight:700;}
 
+/* VOC ROW HOVER */
+.voc-l1-row:hover td{background:var(--surface2);}
+
 /* EMPTY */
 .empty-state{text-align:center;padding:56px;color:var(--muted);}
 .empty-state .icon{font-size:40px;display:block;margin-bottom:12px;}
@@ -161,7 +163,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="load-box">
     <span class="load-spinner" id="load-icon">⏳</span>
     <div class="load-title" id="load-title">Loading Dashboard</div>
-    <div class="load-msg" id="load-msg">Fetching latest data from Google Sheets…</div>
+    <div class="load-msg" id="load-msg">Fetching live data from Freshdesk…</div>
     <div class="load-error" id="load-error"></div>
   </div>
 </div>
@@ -201,6 +203,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <select class="filter-select" id="enttype-select" onchange="renderAll()">
         <option value="all">All Ent Types</option>
       </select>
+      <select class="filter-select" id="sla-select" onchange="onHeaderSLAChange()" style="min-width:152px;">
+        <option value="all">All SLA Status</option>
+        <option value="green">✅ Within SLA</option>
+        <option value="amber">🟡 Slightly Over</option>
+        <option value="orange">🟠 Moderately Over</option>
+        <option value="red">🔴 SLA Breached</option>
+      </select>
     </div>
   </div>
 
@@ -215,6 +224,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="wvini">Waiting Vini Product <span class="tab-badge" id="badge-wvini">0</span></div>
     <div class="tab" data-tab="production">Pending at Production <span class="tab-badge" id="badge-production">0</span></div>
     <div class="tab" data-tab="creative">Pending at Creative <span class="tab-badge" id="badge-creative">0</span></div>
+    <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
+    <div class="tab" data-tab="alltickets">All Tickets <span class="tab-badge" id="badge-alltickets">0</span></div>
   </div>
 
   <!-- OVERVIEW TAB -->
@@ -234,34 +245,25 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="section-heading">Click any card to view tickets</div>
     <div class="overview-grid" id="overview-grid"></div>
 
-    <!-- Aging buckets overview -->
+    <!-- SLA Breachometer (click to filter Bug/Task/Query tables below) -->
+    <div id="ov-sla-section" style="margin-bottom:18px;"></div>
+
+    <!-- Top VoC L1 by Type: Bug / Task / Query (updated when SLA band clicked) -->
+    <div id="ov-type-tables" style="margin-bottom:18px;"></div>
+
+    <div class="chart-card" style="margin-bottom:18px;">
+      <div class="chart-title">Pendency by Category</div>
+      <div class="chart-canvas-wrap"><canvas id="chart-by-cat"></canvas></div>
+    </div>
+
+    <div class="chart-card" style="margin-bottom:18px;">
+      <div class="chart-title">Top VoC L1 <span style="font-size:10px;color:var(--muted);font-weight:400;">(Click a bar to see Top 5 L2 breakdown)</span></div>
+      <div class="chart-canvas-wrap" style="height:220px;"><canvas id="chart-voc-l1"></canvas></div>
+    </div>
+    <div id="voc-drill-panel" style="margin-bottom:18px;"></div>
+
+    <!-- Aging — moved to bottom -->
     <div id="ov-aging-section"></div>
-
-    <div class="chart-row-3">
-      <div class="chart-card">
-        <div class="chart-title">Pendency by Category</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-by-cat"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Pending by Priority</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-by-prio"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Aging Buckets (All Pending)</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-aging-ov"></canvas></div>
-      </div>
-    </div>
-
-    <div class="chart-row">
-      <div class="chart-card">
-        <div class="chart-title">Top VoC L1</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-voc-l1"></canvas></div>
-      </div>
-      <div class="chart-card">
-        <div class="chart-title">Top VoC L2</div>
-        <div class="chart-canvas-wrap"><canvas id="chart-voc-l2"></canvas></div>
-      </div>
-    </div>
   </div>
 
   <!-- DETAIL TABS -->
@@ -273,12 +275,14 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-wvini"><div id="detail-wvini"></div></div>
   <div class="tab-content" id="tab-production"><div id="detail-production"></div></div>
   <div class="tab-content" id="tab-creative"><div id="detail-creative"></div></div>
+  <div class="tab-content" id="tab-onhold"><div id="detail-onhold"></div></div>
+  <div class="tab-content" id="tab-alltickets"><div id="detail-alltickets"></div></div>
 
 </div>
 
 <script>
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
-const SHEETS_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTcr9yrZtmboI-pd5P0gfB7aoxtfeRP3SnbeZDdTasiHivy7allzTL0H7HF6M8jUXSubkbi0kwSvmTE/pub?output=csv';
+const FRESHDESK_API_URL = '/api/tickets';
 
 // ─── CATEGORIES ───────────────────────────────────────────────────────────────
 const CATEGORIES = [
@@ -298,6 +302,8 @@ const CATEGORIES = [
     filter: r => r['Status'] === 'Pending at Production' },
   { id:'creative',   label:'Pending at Creative',     color:'#f97316',
     filter: r => r['Status'] === 'Pending at Creative' },
+  { id:'onhold',     label:'PS On Hold',              color:'#64748b',
+    filter: r => r['Status'] === 'On Hold (Internal)' },
 ];
 
 // ─── AGING BUCKETS ────────────────────────────────────────────────────────────
@@ -318,6 +324,9 @@ const PRIO_ORDER  = ['Urgent','High','Medium','Low'];
 let allData   = [];
 let charts    = {};
 let sortState = {};
+window._slaFilter = null;        // active SLA band filter (null | 'green'|'amber'|'orange'|'red')
+window._typeBaseTickets = [];    // full pending set for SLA filtering
+window._typeData = {};           // key -> {tickets, l1, color} for L2 drill-down
 
 // ─── AUTH GATE ────────────────────────────────────────────────────────────────
 (function(){
@@ -340,31 +349,33 @@ function switchTab(id){
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.toggle('active',c.id==='tab-'+id));
 }
 
-// ─── GOOGLE SHEETS FETCH ──────────────────────────────────────────────────────
-function loadFromSheets(){
+// ─── FRESHDESK FETCH ──────────────────────────────────────────────────────────
+function loadFromSheets(){  // keep name so refresh-btn onclick still works
   document.getElementById('load-screen').classList.remove('hidden');
   document.getElementById('dashboard').style.display='none';
   document.getElementById('load-icon').textContent='⏳';
   document.getElementById('load-title').textContent='Loading Dashboard';
-  document.getElementById('load-msg').textContent='Fetching latest data from Google Sheets…';
+  document.getElementById('load-msg').textContent='Fetching live data from Freshdesk…';
   document.getElementById('load-error').style.display='none';
-  Papa.parse(SHEETS_CSV_URL,{
-    download:true,header:true,skipEmptyLines:true,
-    complete:r=>{
-      allData=r.data;
+  fetch(FRESHDESK_API_URL)
+    .then(r=>{
+      if(!r.ok) throw new Error('API returned '+r.status);
+      return r.json();
+    })
+    .then(data=>{
+      allData=data;
       populateFilters();
       document.getElementById('load-screen').classList.add('hidden');
       document.getElementById('dashboard').style.display='block';
       document.getElementById('last-synced').textContent='Last synced: '+new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
       renderAll();
-    },
-    error:e=>{
+    })
+    .catch(e=>{
       document.getElementById('load-icon').textContent='❌';
       document.getElementById('load-title').textContent='Could not load data';
-      document.getElementById('load-msg').textContent='Check the Google Sheet is published as CSV.';
+      document.getElementById('load-msg').textContent='Check that FRESHDESK_DOMAIN and FRESHDESK_API_KEY are set in Vercel.';
       const el=document.getElementById('load-error');el.textContent=String(e);el.style.display='block';
-    }
-  });
+    });
 }
 
 // ─── POPULATE FILTERS ─────────────────────────────────────────────────────────
@@ -399,20 +410,97 @@ function getFiltered(){
   const prf=document.getElementById('priority-select').value;
   const cf=document.getElementById('category-select').value;
   const ef=document.getElementById('enttype-select').value;
+  const sf=(document.getElementById('sla-select')||{}).value||'all';
   return allData.filter(r=>{
     if(mf!=='all'&&r['Month']!==mf)return false;
     if(pf!=='all'&&r['Product (Studio/Vini)']!==pf)return false;
     if(prf!=='all'&&r['Priority']!==prf)return false;
     if(cf!=='all'&&(r['Category/Type']||'').trim()!==cf)return false;
     if(ef!=='all'&&(r['ENT Type']||'').trim()!==ef)return false;
+    if(sf!=='all'&&getSLAStatus(r)!==sf)return false;
     return true;
   });
 }
 
+// ─── HEADER SLA FILTER HANDLER ───────────────────────────────────────────────
+function onHeaderSLAChange(){
+  // Sync the header SLA dropdown with the breachometer band filter so both stay in step
+  const sel=document.getElementById('sla-select');
+  const sf=sel?sel.value:'all';
+  window._slaFilter = sf==='all' ? null : sf;
+  // Visual: tint the dropdown border to match the selected SLA color
+  const SLA_COLORS={green:'#10b981',amber:'#f59e0b',orange:'#f97316',red:'#ef4444'};
+  if(sel){
+    sel.style.borderColor = sf==='all' ? 'var(--border2)' : SLA_COLORS[sf];
+    sel.style.color = sf==='all' ? 'var(--text)' : SLA_COLORS[sf];
+    sel.style.fontWeight = sf==='all' ? '500' : '600';
+  }
+  renderAll();
+}
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
+// Try every known column-name variant for the creation date
+function getCreatedTime(r){
+  const v=r['Created time']||r['Created at']||r['Created At']||r['created_at']||
+           r['Created Time']||r['Date Created']||r['date_created']||null;
+  return v?String(v).trim():null;
+}
+// Normalize priority — handles text (any case) AND Freshdesk numeric (4=Urgent,3=High,2=Medium,1=Low)
+function normalizePriority(r){
+  const raw=String(r['Priority']||r['priority']||'').trim().toLowerCase();
+  if(raw==='urgent'||raw==='4') return 'Urgent';
+  if(raw==='high'  ||raw==='3') return 'High';
+  if(raw==='medium'||raw==='normal'||raw==='2') return 'Medium';
+  if(raw==='low'   ||raw==='1') return 'Low';
+  return null;
+}
 function daysOpen(r){
-  const ct=r['Created time'];if(!ct||!ct.trim())return null;
-  const d=new Date(ct.trim());return isNaN(d)?null:Math.floor((Date.now()-d.getTime())/86400000);
+  const ct=getCreatedTime(r);if(!ct)return null;
+  let d=new Date(ct);
+  if(isNaN(d.getTime()))d=new Date(ct.replace(' ','T'));
+  return isNaN(d.getTime())?null:Math.floor((Date.now()-d.getTime())/86400000);
+}
+function hoursOpen(r){
+  const ct=getCreatedTime(r);if(!ct)return null;
+  let d=new Date(ct);
+  if(isNaN(d.getTime()))d=new Date(ct.replace(' ','T'));
+  if(isNaN(d.getTime())){
+    const days=daysOpen(r);
+    return days===null?null:days*24;
+  }
+  return (Date.now()-d.getTime())/3600000;
+}
+// SLA thresholds: Urgent 6h | High 1d | Medium 5d | Low 10d
+// Color bands: Green=within SLA, Amber=slight, Orange=moderate, Red=breached
+function getSLAStatus(r){
+  const h=hoursOpen(r);if(h===null)return null;
+  const d=h/24;
+  const p=normalizePriority(r);if(!p)return null;
+  if(p==='Urgent'){
+    if(h<=6)  return 'green';
+    if(h<=48) return 'amber';
+    if(h<=72) return 'orange';
+    return 'red';
+  }
+  if(p==='High'){
+    if(d<1)  return 'green';
+    if(d<=3) return 'amber';
+    if(d<=5) return 'orange';
+    return 'red';
+  }
+  if(p==='Medium'){
+    if(d<5)  return 'green';
+    if(d<=7) return 'amber';
+    if(d<=10)return 'orange';
+    return 'red';
+  }
+  if(p==='Low'){
+    if(d<15) return 'green';
+    if(d<=20)return 'amber';
+    if(d<=30)return 'orange';
+    return 'red';
+  }
+  return null;
 }
 function prioBadge(p){
   const m={Urgent:'prio-urgent',High:'prio-high',Medium:'prio-medium',Low:'prio-low'};
@@ -442,6 +530,7 @@ function renderAll(){
   });
   renderOverview(buckets,total);
   CATEGORIES.forEach(cat=>renderDetail(cat,buckets[cat.id]));
+  renderAllTicketsTab(base);
 }
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
@@ -458,14 +547,18 @@ function renderOverview(buckets,total){
     `<span style="color:var(--muted);margin:0 4px;">·</span>`+
     `<span style="color:#10b981;font-weight:600;">Vini ${vini}</span>`;
 
-  // Breakdown pills
+  // Breakdown pills (with Jira count from tag column)
+  const TAG_COLS=['Tag','Tags','tag','tags'];
+  const tagCol=allData.length?TAG_COLS.find(c=>allData[0][c]!==undefined)||null:null;
   const bd=document.getElementById('ov-breakdown');bd.innerHTML='';
   CATEGORIES.forEach(cat=>{
     const n=buckets[cat.id].length;if(!n)return;
+    let jiraCount=0;
+    if(tagCol){jiraCount=buckets[cat.id].filter(r=>(r[tagCol]||'').toLowerCase().split(/[\s,;|]+/).some(t=>t.trim()==='jira_linked')).length;}
     const p=document.createElement('div');
     p.className='sb-pill';
     p.style.cssText=`border-color:${cat.color}33;color:${cat.color};cursor:pointer;`;
-    p.textContent=`${cat.label}: ${n}`;
+    p.innerHTML=`${cat.label}: <strong>${n}</strong>${jiraCount?` <span style="font-size:10px;color:var(--muted);">(${jiraCount} Jira)</span>`:''}`;
     p.onclick=()=>switchTab(cat.id);
     bd.appendChild(p);
   });
@@ -487,16 +580,34 @@ function renderOverview(buckets,total){
     grid.appendChild(card);
   });
 
-  // Aging section (overview — all pending combined)
+  // Aging section (overview — priority-stacked, rendered at bottom of overview HTML)
   const allPending=Object.values(buckets).flat();
-  const agCounts=agingCounts(allPending);
   const agSection=document.getElementById('ov-aging-section');
   agSection.innerHTML='';
   if(allPending.length){
-    agSection.appendChild(buildAgingSection(agCounts,allPending.length,'Pendency Aging — All Categories'));
+    agSection.appendChild(buildAgingStackedSection(allPending,'Pendency Aging — All Categories'));
   }
 
-  // Charts
+  // SLA Breachometer — rendered FIRST so clicks can filter the tables below
+  window._typeBaseTickets=allPendingForSplit;
+  const slaSection=document.getElementById('ov-sla-section');
+  if(slaSection){
+    slaSection.innerHTML='';
+    if(allPending.length) slaSection.appendChild(buildSLASection(allPending,'SLA Breachometer — Pending Tickets by Priority'));
+  }
+
+  // Type VoC tables (Bug / Task / Query) — rendered AFTER SLA section
+  const typeTablesEl=document.getElementById('ov-type-tables');
+  if(typeTablesEl){
+    typeTablesEl.innerHTML='';
+    const baseForTables=window._slaFilter
+      ?allPendingForSplit.filter(r=>getSLAStatus(r)===window._slaFilter)
+      :allPendingForSplit;
+    const typeTbl=buildTypeVoCTables(baseForTables,window._slaFilter);
+    if(typeTbl) typeTablesEl.appendChild(typeTbl);
+  }
+
+  // Pendency by Category (full width now)
   const catLabels=CATEGORIES.map(c=>c.label);
   const catCounts=CATEGORIES.map(c=>buckets[c.id].length);
   const catColors=CATEGORIES.map(c=>c.color);
@@ -504,47 +615,119 @@ function renderOverview(buckets,total){
     data:catCounts,backgroundColor:catColors.map(c=>c+'bb'),borderColor:catColors,borderWidth:1,borderRadius:4
   }],{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:10}}}}});
 
-  const prioData=PRIO_ORDER.map(p=>allPending.filter(r=>r['Priority']===p).length);
-  const prioColors=['#ef4444','#f59e0b','#3b82f6','#64748b'];
-  renderChart('chart-by-prio','doughnut',PRIO_ORDER,[{data:prioData,backgroundColor:prioColors.map(c=>c+'cc'),borderColor:prioColors,borderWidth:1}],
-    {plugins:{legend:{position:'right',labels:{color:'#94a3b8',font:{size:11},padding:10}}}});
-
-  const agData=BUCKETS.map(b=>agCounts[b]||0);
-  renderChart('chart-aging-ov','bar',BUCKETS,[{
-    data:agData,backgroundColor:BUCKET_COLORS.map(c=>c+'cc'),borderColor:BUCKET_COLORS,borderWidth:1,borderRadius:4
-  }],{plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}},y:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}}}});
-
-  // ── VoC L1 chart (exclude blank / unspecified) ────────────────────────────
-  const EXCLUDE_L1 = ['', 'unspecified', 'n/a', 'na', 'none', 'not specified'];
+  // ── VoC L1 chart (clickable — drills into Top 5 VoC L2) ──────────────────
+  const EXCLUDE_L1=['','unspecified','n/a','na','none','not specified'];
   const vocL1Map={};
   allPendingForSplit.forEach(r=>{
     const v=(r['VoC L1']||'').trim();
-    if(!EXCLUDE_L1.includes(v.toLowerCase())) vocL1Map[v]=(vocL1Map[v]||0)+1;
+    if(!EXCLUDE_L1.includes(v.toLowerCase()))vocL1Map[v]=(vocL1Map[v]||0)+1;
   });
   const vocL1Sorted=Object.entries(vocL1Map).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  const drillPanel=document.getElementById('voc-drill-panel');
+  if(drillPanel)drillPanel.innerHTML='';
   if(vocL1Sorted.length){
     renderChart('chart-voc-l1','bar',
       vocL1Sorted.map(e=>e[0]),
       [{data:vocL1Sorted.map(e=>e[1]),backgroundColor:'#8b5cf6bb',borderColor:'#8b5cf6',borderWidth:1,borderRadius:4}],
       {indexAxis:'y',plugins:{legend:{display:false}},
-       scales:{x:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}}});
+       scales:{x:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}},
+       onClick:(evt,els)=>{
+         if(!els.length)return;
+         const lbl=vocL1Sorted[els[0].index][0];
+         showVocL2Drill(lbl,allPendingForSplit);
+       }});
   }
+}
 
-  // ── VoC L2 chart (exclude "Others" and blank) ─────────────────────────────
-  const EXCLUDE_L2 = ['', 'others', 'other', 'unspecified', 'n/a', 'none'];
-  const vocL2Map={};
-  allPendingForSplit.forEach(r=>{
-    const v=(r['VoC L2']||'').trim();
-    if(!EXCLUDE_L2.includes(v.toLowerCase())) vocL2Map[v]=(vocL2Map[v]||0)+1;
-  });
-  const vocL2Sorted=Object.entries(vocL2Map).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  if(vocL2Sorted.length){
-    renderChart('chart-voc-l2','bar',
-      vocL2Sorted.map(e=>e[0]),
-      [{data:vocL2Sorted.map(e=>e[1]),backgroundColor:'#06b6d4bb',borderColor:'#06b6d4',borderWidth:1,borderRadius:4}],
-      {indexAxis:'y',plugins:{legend:{display:false}},
-       scales:{x:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}}});
+// ─── TYPE VOC TABLES (Bug / Task / Query) — clickable for L2 drill ────────────
+function buildTypeVoCTables(tickets, activeSlaFilter){
+  const TYPE_COLS=['Type','type','Ticket Type','ticket_type'];
+  let typeCol=null;
+  if(tickets.length){
+    typeCol=TYPE_COLS.find(c=>tickets[0][c]!==undefined)||null;
+    if(!typeCol&&tickets[0]['Category/Type']!==undefined) typeCol='Category/Type';
   }
+  if(!typeCol) return null;
+
+  const TYPES=[
+    {key:'Bug',   label:'Bugs',          icon:'🐛', color:'#ef4444', match:v=>v.includes('bug')},
+    {key:'Task',  label:'Open Tasks',    icon:'📋', color:'#3b82f6', match:v=>v.includes('task')},
+    {key:'Query', label:'Query (How to)',icon:'❓', color:'#10b981', match:v=>v.includes('query')||v.includes('how to')||v.includes('howto')},
+  ];
+  const EXCL=['','unspecified','n/a','na','none','not specified'];
+  const SLA_LABELS={green:'Within SLA',amber:'Slightly Over',orange:'Moderately Over',red:'SLA Breached'};
+  const SLA_COLORS={green:'#10b981',amber:'#f59e0b',orange:'#f97316',red:'#ef4444'};
+
+  // Reset drill data store
+  if(!window._typeData) window._typeData={};
+
+  const wrap=document.createElement('div');
+  wrap.style.cssText='display:grid;grid-template-columns:repeat(3,1fr);gap:14px;';
+
+  TYPES.forEach(t=>{
+    const typed=tickets.filter(r=>t.match((r[typeCol]||'').trim().toLowerCase()));
+
+    // Build L1 map storing full ticket lists for drill-down
+    const l1Map={};
+    typed.forEach(r=>{
+      const v=(r['VoC L1']||'').trim();
+      if(!EXCL.includes(v.toLowerCase())&&v){
+        if(!l1Map[v]){l1Map[v]={count:0,tickets:[]};}
+        l1Map[v].count++;
+        l1Map[v].tickets.push(r);
+      }
+    });
+    const top10=Object.entries(l1Map).sort((a,b)=>b[1].count-a[1].count).slice(0,10);
+
+    // Store in global for toggleL2Drill
+    top10.forEach((e,i)=>{
+      window._typeData[`${t.key}-${i}`]={tickets:e[1].tickets,l1:e[0],color:t.color};
+    });
+
+    const rowsHTML=top10.length
+      ? top10.map((e,i)=>{
+          const key=`${t.key}-${i}`;
+          return `<tr class="voc-l1-row" data-l2key="${key}" onclick="toggleL2Drill('${key}')" style="cursor:pointer;transition:background .15s;">
+            <td style="padding:5px 10px;font-size:11px;color:var(--muted2);width:22px;">${i+1}</td>
+            <td style="padding:5px 10px;font-size:12px;color:var(--text);max-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${e[0].replace(/"/g,'&quot;')}">${e[0]} <span style="font-size:10px;color:var(--muted2);">▾</span></td>
+            <td style="padding:5px 10px;font-size:13px;font-weight:700;color:${t.color};text-align:right;white-space:nowrap;">${e[1].count}</td>
+          </tr>
+          <tr id="l2drill-${key}" style="display:none;">
+            <td colspan="3" style="padding:0 8px 4px;"></td>
+          </tr>`;
+        }).join('')
+      : `<tr><td colspan="3" style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">No ${t.key} tickets</td></tr>`;
+
+    const filterBadge=activeSlaFilter
+      ?`<span style="font-size:10px;font-weight:600;background:${SLA_COLORS[activeSlaFilter]}22;color:${SLA_COLORS[activeSlaFilter]};border:1px solid ${SLA_COLORS[activeSlaFilter]}44;border-radius:10px;padding:1px 8px;">${SLA_LABELS[activeSlaFilter]}</span>`
+      :'';
+
+    const card=document.createElement('div');
+    card.className='chart-card';
+    card.style.cssText=`border-top:3px solid ${t.color};padding:14px 16px;`;
+    card.innerHTML=`
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;gap:8px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:13px;font-weight:700;color:${t.color};">${t.icon} ${t.label}</span>
+          ${filterBadge}
+        </div>
+        <span style="font-size:11px;color:${t.color};background:${t.color}18;border:1px solid ${t.color}44;border-radius:12px;padding:2px 9px;font-weight:600;white-space:nowrap;">${typed.length} tickets</span>
+      </div>
+      <div style="font-size:10px;color:var(--muted2);margin-bottom:8px;">Click any row → Top 3 VoC L2 drill-down</div>
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed;">
+        <colgroup><col style="width:26px"/><col/><col style="width:40px"/></colgroup>
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);">
+            <th style="padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;">#</th>
+            <th style="padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:left;">VoC L1</th>
+            <th style="padding:4px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);text-align:right;">Cnt</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHTML}</tbody>
+      </table>`;
+    wrap.appendChild(card);
+  });
+  return wrap;
 }
 
 // ─── BUILD AGING SECTION (visual bars) ───────────────────────────────────────
@@ -570,6 +753,218 @@ function buildAgingSection(agCounts, total, title){
     rows.appendChild(row);
   });
   return wrap;
+}
+
+// ─── SLA BREACHOMETER SECTION (clickable — filters type tables) ──────────────
+// SLA rules: Urgent ≤6h|6-48h|48-72h|>72h  High <1d|1-3d|3-5d|>5d
+//            Medium <5d|5-7d|7-10d|>10d     Low <15d|15-20d|20-30d|>30d
+function buildSLASection(tickets, title){
+  const SLA_COLORS={green:'#10b981',amber:'#f59e0b',orange:'#f97316',red:'#ef4444'};
+  const SLA_LABELS={green:'Within SLA',amber:'Slightly Over',orange:'Moderately Over',red:'SLA Breached'};
+  const SLA_ORDER =['green','amber','orange','red'];
+  const activeSla =window._slaFilter||null;
+
+  const prioSLA={};
+  PRIO_ORDER.forEach(p=>{prioSLA[p]={green:0,amber:0,orange:0,red:0};});
+  const totals={green:0,amber:0,orange:0,red:0};
+  let _dbgNoDate=0,_dbgNoPrio=0,_dbgOk=0;
+  // Probe first ticket to surface column names for diagnostics
+  const _sample=tickets[0]||{};
+  const _sampleDate=getCreatedTime(_sample)||'—';
+  const _samplePrio=String(_sample['Priority']||_sample['priority']||'—');
+  tickets.forEach(r=>{
+    const h=hoursOpen(r);
+    if(h===null){_dbgNoDate++;return;}
+    const p=normalizePriority(r);
+    if(!p){_dbgNoPrio++;return;}
+    const s=getSLAStatus(r);if(!s)return;
+    _dbgOk++;
+    if(prioSLA[p]){prioSLA[p][s]++;totals[s]++;}
+    else{totals[s]++;}
+  });
+  // Visible diagnostic line (remove once SLA is working)
+  const _dbgLine=(_dbgOk===0)?
+    `<div style="font-size:10px;color:#f87171;margin:4px 0 2px;padding:4px 8px;background:#ff000018;border-radius:4px;">
+      ⚠ SLA debug: ${tickets.length} tickets — ${_dbgNoDate} no date, ${_dbgNoPrio} no priority, ${_dbgOk} matched.
+      Sample: date="${_sampleDate}" | priority="${_samplePrio}"
+     </div>`
+    :'';
+
+  const prioTotals=PRIO_ORDER.map(p=>SLA_ORDER.reduce((s,k)=>s+prioSLA[p][k],0));
+  const maxTotal=Math.max(...prioTotals,1);
+
+  // Clickable summary pills — active one is highlighted
+  const summaryHTML=SLA_ORDER.map(s=>{
+    const on=activeSla===s;
+    return `<span onclick="filterTypeTablesBySLA('${s}')" style="font-size:12px;font-weight:600;color:${SLA_COLORS[s]};background:${on?SLA_COLORS[s]+'33':SLA_COLORS[s]+'18'};border:${on?'2px':'1px'} solid ${on?SLA_COLORS[s]:SLA_COLORS[s]+'44'};border-radius:20px;padding:3px 12px;cursor:pointer;transition:all .2s;${on?'box-shadow:0 0 0 3px '+SLA_COLORS[s]+'22;':''}">${SLA_LABELS[s]}: ${totals[s]}${on?' ✓':''}</span>`;
+  }).join('');
+
+  const legendHTML=SLA_ORDER.map(s=>
+    `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);">
+       <span style="width:10px;height:10px;border-radius:2px;background:${SLA_COLORS[s]};display:inline-block;"></span>${SLA_LABELS[s]}
+     </span>`
+  ).join('');
+
+  let rowsHTML='';
+  PRIO_ORDER.forEach((p,idx)=>{
+    const pTot=prioTotals[idx];
+    const barW=pTot?Math.max(Math.round(pTot/maxTotal*100),2):0;
+    let segHTML='';
+    if(pTot>0){
+      SLA_ORDER.forEach(s=>{
+        const n=prioSLA[p][s];if(!n)return;
+        const sw=Math.max(Math.round(n/pTot*100),2);
+        const on=activeSla===s;
+        segHTML+=`<div onclick="filterTypeTablesBySLA('${s}')" style="width:${sw}%;background:${SLA_COLORS[s]}${on?'ff':'cc'};height:100%;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .15s;${on?'outline:2px solid rgba(255,255,255,.7);outline-offset:-2px;':''}" title="Click to filter: ${SLA_LABELS[s]} — ${p}: ${n}">
+          ${n>0?`<span style="font-size:10px;font-weight:700;color:#fff;">${n}</span>`:''}</div>`;
+      });
+    }
+    rowsHTML+=`<div class="aging-row">
+      <span class="aging-label" style="width:64px;font-size:11px;">${p}</span>
+      <div class="aging-bar-track">
+        <div style="width:${barW}%;height:100%;display:flex;overflow:hidden;border-radius:4px;">${segHTML}</div>
+      </div>
+      <span class="aging-count-right">${pTot}</span>
+    </div>`;
+  });
+
+  const clearBtn=activeSla?`<span onclick="filterTypeTablesBySLA(null)" style="font-size:11px;color:var(--accent);cursor:pointer;background:var(--surface2);border:1px solid var(--border2);border-radius:10px;padding:2px 10px;">✕ Clear filter</span>`:'';
+
+  // Full SLA threshold reference table
+  const refHTML=`<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:6px;">
+      <span style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;">SLA Thresholds Reference</span>
+      ${clearBtn}
+    </div>
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead>
+          <tr>
+            <th style="padding:6px 12px;text-align:left;color:var(--muted);font-weight:600;font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);white-space:nowrap;">Priority</th>
+            <th style="padding:6px 12px;text-align:center;color:#10b981;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);white-space:nowrap;">🟢 Green</th>
+            <th style="padding:6px 12px;text-align:center;color:#f59e0b;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);white-space:nowrap;">🟡 Amber</th>
+            <th style="padding:6px 12px;text-align:center;color:#f97316;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);white-space:nowrap;">🟠 Orange</th>
+            <th style="padding:6px 12px;text-align:center;color:#ef4444;font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.06em;border-bottom:1px solid var(--border);white-space:nowrap;">🔴 Red</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr style="border-bottom:1px solid var(--border)22;">
+            <td style="padding:7px 12px;font-weight:600;color:var(--text);white-space:nowrap;">Urgent</td>
+            <td style="padding:7px 12px;text-align:center;color:#10b981;background:#10b98108;white-space:nowrap;">≤ 6 hrs</td>
+            <td style="padding:7px 12px;text-align:center;color:#f59e0b;background:#f59e0b08;white-space:nowrap;">6 – 48 hrs</td>
+            <td style="padding:7px 12px;text-align:center;color:#f97316;background:#f9731608;white-space:nowrap;">48 – 72 hrs</td>
+            <td style="padding:7px 12px;text-align:center;color:#ef4444;background:#ef444408;white-space:nowrap;">&gt; 72 hrs</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--border)22;">
+            <td style="padding:7px 12px;font-weight:600;color:var(--text);white-space:nowrap;">High</td>
+            <td style="padding:7px 12px;text-align:center;color:#10b981;background:#10b98108;white-space:nowrap;">&lt; 1 day</td>
+            <td style="padding:7px 12px;text-align:center;color:#f59e0b;background:#f59e0b08;white-space:nowrap;">1 – 3 days</td>
+            <td style="padding:7px 12px;text-align:center;color:#f97316;background:#f9731608;white-space:nowrap;">3 – 5 days</td>
+            <td style="padding:7px 12px;text-align:center;color:#ef4444;background:#ef444408;white-space:nowrap;">&gt; 5 days</td>
+          </tr>
+          <tr style="border-bottom:1px solid var(--border)22;">
+            <td style="padding:7px 12px;font-weight:600;color:var(--text);white-space:nowrap;">Medium</td>
+            <td style="padding:7px 12px;text-align:center;color:#10b981;background:#10b98108;white-space:nowrap;">&lt; 5 days</td>
+            <td style="padding:7px 12px;text-align:center;color:#f59e0b;background:#f59e0b08;white-space:nowrap;">5 – 7 days</td>
+            <td style="padding:7px 12px;text-align:center;color:#f97316;background:#f9731608;white-space:nowrap;">7 – 10 days</td>
+            <td style="padding:7px 12px;text-align:center;color:#ef4444;background:#ef444408;white-space:nowrap;">&gt; 10 days</td>
+          </tr>
+          <tr>
+            <td style="padding:7px 12px;font-weight:600;color:var(--text);white-space:nowrap;">Low</td>
+            <td style="padding:7px 12px;text-align:center;color:#10b981;background:#10b98108;white-space:nowrap;">&lt; 15 days</td>
+            <td style="padding:7px 12px;text-align:center;color:#f59e0b;background:#f59e0b08;white-space:nowrap;">15 – 20 days</td>
+            <td style="padding:7px 12px;text-align:center;color:#f97316;background:#f9731608;white-space:nowrap;">20 – 30 days</td>
+            <td style="padding:7px 12px;text-align:center;color:#ef4444;background:#ef444408;white-space:nowrap;">&gt; 30 days</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+
+  const wrap=document.createElement('div');
+  wrap.className='aging-section';
+  wrap.innerHTML=`
+    <div class="aging-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px;">
+      <span>${title} <span style="font-size:10px;font-weight:400;color:var(--muted);">(click a band to filter Bug/Task/Query tables)</span></span>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">${summaryHTML}</div>
+    </div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">${legendHTML}</div>
+    ${_dbgLine}
+    <div class="aging-rows">${rowsHTML}</div>
+    ${refHTML}`;
+  return wrap;
+}
+
+// ─── BUILD AGING STACKED SECTION (priority-stacked visual bars) ─────────────
+function buildAgingStackedSection(tickets,title){
+  const PRIO_COLORS={Urgent:'#ef4444',High:'#f59e0b',Medium:'#3b82f6',Low:'#64748b'};
+  const bucketPrio={};
+  BUCKETS.forEach(b=>{bucketPrio[b]={};PRIO_ORDER.forEach(p=>{bucketPrio[b][p]=0;});});
+  tickets.forEach(r=>{
+    const b=getBucket(daysOpen(r));
+    const p=r['Priority'];
+    if(b&&bucketPrio[b]&&PRIO_ORDER.includes(p))bucketPrio[b][p]++;
+  });
+  const bucketTotals=BUCKETS.map(b=>PRIO_ORDER.reduce((s,p)=>s+(bucketPrio[b][p]||0),0));
+  const maxTotal=Math.max(...bucketTotals,1);
+  const legendHTML=PRIO_ORDER.map(p=>
+    `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);">
+      <span style="width:10px;height:10px;border-radius:2px;background:${PRIO_COLORS[p]};display:inline-block;"></span>${p}
+    </span>`).join('');
+  const wrap=document.createElement('div');
+  wrap.className='aging-section';
+  wrap.innerHTML=`<div class="aging-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    <span>${title}</span><div style="display:flex;gap:12px;flex-wrap:wrap;">${legendHTML}</div>
+  </div><div class="aging-rows"></div>`;
+  const rows=wrap.querySelector('.aging-rows');
+  BUCKETS.forEach((b,i)=>{
+    const tot=bucketTotals[i];
+    const barW=tot?Math.max(Math.round(tot/maxTotal*100),2):0;
+    let segHTML='';
+    if(tot>0){
+      PRIO_ORDER.forEach(p=>{
+        const n=bucketPrio[b][p];if(!n)return;
+        const sw=Math.max(Math.round(n/tot*100),2);
+        segHTML+=`<div style="width:${sw}%;background:${PRIO_COLORS[p]}cc;height:100%;display:flex;align-items:center;justify-content:center;" title="${p}: ${n}">
+          ${n>0?`<span style="font-size:10px;font-weight:700;color:#fff;">${n}</span>`:''}</div>`;
+      });
+    }
+    const row=document.createElement('div');row.className='aging-row';
+    row.innerHTML=`
+      <span class="aging-label">${b}</span>
+      <div class="aging-bar-track">
+        <div style="width:${barW}%;height:100%;display:flex;overflow:hidden;border-radius:4px;">${segHTML}</div>
+      </div>
+      <span class="aging-count-right" style="color:${BUCKET_COLORS[i]}">${tot}</span>`;
+    rows.appendChild(row);
+  });
+  return wrap;
+}
+
+// ─── VOC L2 DRILL ─────────────────────────────────────────────────────────────
+function showVocL2Drill(l1Label,tickets){
+  const EXCLUDE_L2=['','others','other','unspecified','n/a','none'];
+  const filtered=tickets.filter(r=>(r['VoC L1']||'').trim()===l1Label);
+  const l2Map={};
+  filtered.forEach(r=>{
+    const v=(r['VoC L2']||'').trim();
+    if(!EXCLUDE_L2.includes(v.toLowerCase()))l2Map[v]=(l2Map[v]||0)+1;
+  });
+  const l2Sorted=Object.entries(l2Map).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  const panel=document.getElementById('voc-drill-panel');if(!panel)return;
+  if(!l2Sorted.length){
+    panel.innerHTML=`<div class="chart-card"><div class="chart-title">VoC L2 — ${l1Label}</div><div style="color:var(--muted);font-size:13px;padding:12px 0;">No L2 data for this category (excluding Others).</div></div>`;
+    return;
+  }
+  panel.innerHTML=`<div class="chart-card">
+    <div class="chart-title">Top 5 VoC L2 for <span style="color:#8b5cf6;">${l1Label}</span> <span style="font-size:10px;color:var(--muted);font-weight:400;">(excluding Others)</span></div>
+    <div class="chart-canvas-wrap" style="height:160px;"><canvas id="chart-voc-l2-drill"></canvas></div>
+  </div>`;
+  renderChart('chart-voc-l2-drill','bar',
+    l2Sorted.map(e=>e[0]),
+    [{data:l2Sorted.map(e=>e[1]),backgroundColor:'#06b6d4bb',borderColor:'#06b6d4',borderWidth:1,borderRadius:4}],
+    {indexAxis:'y',plugins:{legend:{display:false}},
+     scales:{x:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}}});
 }
 
 // ─── CHART HELPER ─────────────────────────────────────────────────────────────
@@ -684,6 +1079,8 @@ function renderDetail(cat,tickets){
         <div class="chart-canvas-wrap"><canvas id="${prioChartId}"></canvas></div>
       </div>
     </div>
+    ${buildOldestTable(tickets, cat.color)}
+    <div class="section-heading" style="margin-top:20px;">All Tickets</div>
     <div class="table-wrap">
       <table class="ticket-table">
         <thead><tr>
@@ -727,6 +1124,296 @@ function renderDetail(cat,tickets){
   const prioColors=['#ef4444','#f59e0b','#3b82f6','#64748b'];
   renderChart(prioChartId,'doughnut',PRIO_ORDER,[{data:prioData,backgroundColor:prioColors.map(c=>c+'cc'),borderColor:prioColors,borderWidth:1}],
     {plugins:{legend:{position:'right',labels:{color:'#94a3b8',font:{size:11},padding:10}}}});
+}
+
+// ─── TOP 10 OLDEST TICKETS ────────────────────────────────────────────────────
+function buildOldestTable(tickets, accentColor){
+  const top10 = [...tickets]
+    .map(r=>({r, d:daysOpen(r)??-1}))
+    .filter(x=>x.d>=0)
+    .sort((a,b)=>b.d-a.d)
+    .slice(0,10);
+
+  if(!top10.length) return '';
+
+  const rows = top10.map(({r,d},i)=>{
+    const ent=(r['Enterprise Name']||'—').replace(/"/g,"'");
+    const subj=(r['Subject']||'—').replace(/"/g,"'");
+    const rankColor = d>30?'var(--red)':d>14?'var(--amber)':'var(--text)';
+    return `<tr>
+      <td style="font-weight:700;color:${rankColor};font-size:13px;width:28px;">${i+1}</td>
+      <td><a class="tid" href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank" rel="noopener">#${r['Ticket ID']||'—'}</a></td>
+      <td><span class="subject" title="${subj}">${r['Subject']||'—'}</span></td>
+      <td style="font-size:12px;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${ent}">${r['Enterprise Name']||'—'}</td>
+      <td style="font-size:12px;">${r['Product (Studio/Vini)']||'—'}</td>
+      <td>${prioBadge(r['Priority'])}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r['CSM Name (updated)']||r['CSM Name']||'—'}</td>
+      <td><span class="days-badge ${d>14?'days-hot':d>7?'days-warn':'days-ok'}" style="font-size:13px;font-weight:700;">${d}d</span></td>
+    </tr>`;
+  }).join('');
+
+  return `
+    <div class="section-heading">🔥 Top 10 Oldest Tickets</div>
+    <div class="table-wrap" style="margin-bottom:0;">
+      <table class="ticket-table">
+        <thead><tr>
+          <th>#</th>
+          <th>Ticket ID</th>
+          <th>Subject</th>
+          <th>Enterprise</th>
+          <th>Product</th>
+          <th>Priority</th>
+          <th>CSM</th>
+          <th>Days Open</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+}
+
+// ─── ALL TICKETS TAB ──────────────────────────────────────────────────────────
+function renderAllTicketsTab(filtered){
+  const el=document.getElementById('detail-alltickets');if(!el)return;
+  const badge=document.getElementById('badge-alltickets');
+  if(badge)badge.textContent=filtered.length;
+
+  if(!filtered.length){
+    el.innerHTML=`<div class="empty-state"><span class="icon">📭</span><strong>No tickets</strong><br>No data for the selected filters.</div>`;
+    return;
+  }
+
+  const studio=filtered.filter(r=>r['Product (Studio/Vini)']==='Studio').length;
+  const vini=filtered.filter(r=>r['Product (Studio/Vini)']==='Vini').length;
+
+  const frSLA=filtered.filter(r=>(r['First response status']||'').toLowerCase().includes('within'));
+  const frVio=filtered.filter(r=>(r['First response status']||'').toLowerCase().includes('violated'));
+  const resSLA=filtered.filter(r=>(r['Resolution status']||'').toLowerCase().includes('within'));
+  const resVio=filtered.filter(r=>(r['Resolution status']||'').toLowerCase().includes('violated'));
+  const frTotal=frSLA.length+frVio.length;
+  const resTotal=resSLA.length+resVio.length;
+  const frPct=frTotal?Math.round(frSLA.length/frTotal*100):0;
+  const resPct=resTotal?Math.round(resSLA.length/resTotal*100):0;
+
+  function getResDays(r){const h=parseFloat(r['Resolution time (in hrs)']);return isNaN(h)?null:h/24;}
+  function getResBucket(d){
+    if(d===null)return null;
+    if(d<=2)return '0–2d';if(d<=7)return '3–7d';if(d<=14)return '8–14d';if(d<=30)return '15–30d';return '30+d';
+  }
+  const resolved=filtered.filter(r=>getResDays(r)!==null);
+  const resAgStacked={};
+  BUCKETS.forEach(b=>{resAgStacked[b]={};PRIO_ORDER.forEach(p=>{resAgStacked[b][p]=0;});});
+  resolved.forEach(r=>{
+    const b=getResBucket(getResDays(r));const p=r['Priority'];
+    if(b&&PRIO_ORDER.includes(p))resAgStacked[b][p]++;
+  });
+
+  const frColor=frPct>=80?'var(--green)':frPct>=60?'var(--amber)':'var(--red)';
+  const resColor=resPct>=80?'var(--green)':resPct>=60?'var(--amber)':'var(--red)';
+
+  el.innerHTML=`
+    <div class="summary-banner">
+      <div class="sb-main">
+        <div class="sb-label">Total Tickets</div>
+        <div style="display:flex;align-items:baseline;gap:12px;">
+          <div class="sb-value" style="color:var(--accent)">${filtered.length}</div>
+          <div style="font-size:12px;color:var(--muted);line-height:1.6;">
+            <span style="color:#3b82f6;font-weight:600;">Studio ${studio}</span>
+            <span style="color:var(--muted);margin:0 4px;">·</span>
+            <span style="color:#10b981;font-weight:600;">Vini ${vini}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-heading">SLA Adherence <span style="font-size:10px;font-weight:400;text-transform:none;color:var(--muted2);">(click a card to see VoC L1 breakdown)</span></div>
+    <div class="tab-stats">
+      <div class="ts-card" style="cursor:pointer;" onclick="showSLADrill('fr',window._atData)">
+        <div class="ts-label">First Response SLA</div>
+        <div class="ts-value" style="color:${frColor}">${frPct}%</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${frSLA.length} within / ${frTotal} tracked</div>
+      </div>
+      <div class="ts-card" style="cursor:pointer;" onclick="showSLADrill('res',window._atData)">
+        <div class="ts-label">Resolution SLA</div>
+        <div class="ts-value" style="color:${resColor}">${resPct}%</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:4px;">${resSLA.length} within / ${resTotal} tracked</div>
+      </div>
+    </div>
+    <div id="sla-drill-panel" style="margin-bottom:18px;"></div>
+
+    <div class="section-heading">Resolution Time Distribution (${resolved.length} resolved tickets)</div>
+    <div id="at-aging-section" style="margin-bottom:18px;"></div>
+
+    <div class="chart-row">
+      <div class="chart-card">
+        <div class="chart-title">All Tickets by Priority</div>
+        <div class="chart-canvas-wrap"><canvas id="chart-at-prio"></canvas></div>
+      </div>
+      <div class="chart-card">
+        <div class="chart-title">All Tickets by Product</div>
+        <div class="chart-canvas-wrap"><canvas id="chart-at-product"></canvas></div>
+      </div>
+    </div>`;
+
+  window._atData={filtered,frSLA,frVio,resSLA,resVio};
+
+  const atAgSection=document.getElementById('at-aging-section');
+  if(atAgSection&&resolved.length) atAgSection.appendChild(buildResAgingSection(resAgStacked,'Resolution Time Aging — Priority Breakdown'));
+
+  const prioData=PRIO_ORDER.map(p=>filtered.filter(r=>r['Priority']===p).length);
+  const prioColors=['#ef4444','#f59e0b','#3b82f6','#64748b'];
+  renderChart('chart-at-prio','doughnut',PRIO_ORDER,[{data:prioData,backgroundColor:prioColors.map(c=>c+'cc'),borderColor:prioColors,borderWidth:1}],
+    {plugins:{legend:{position:'right',labels:{color:'#94a3b8',font:{size:11},padding:10}}}});
+
+  const prodOther=filtered.filter(r=>r['Product (Studio/Vini)']!=='Studio'&&r['Product (Studio/Vini)']!=='Vini').length;
+  renderChart('chart-at-product','bar',['Studio','Vini','Other'],
+    [{data:[studio,vini,prodOther],backgroundColor:['#3b82f6cc','#10b981cc','#64748bcc'],borderColor:['#3b82f6','#10b981','#64748b'],borderWidth:1,borderRadius:6}],
+    {plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#94a3b8'}},y:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}}}});
+}
+
+function buildResAgingSection(resAgStacked,title){
+  const PRIO_COLORS={Urgent:'#ef4444',High:'#f59e0b',Medium:'#3b82f6',Low:'#64748b'};
+  const bucketTotals=BUCKETS.map(b=>PRIO_ORDER.reduce((s,p)=>s+(resAgStacked[b][p]||0),0));
+  const maxTotal=Math.max(...bucketTotals,1);
+  const legendHTML=PRIO_ORDER.map(p=>
+    `<span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--muted);">
+      <span style="width:10px;height:10px;border-radius:2px;background:${PRIO_COLORS[p]};display:inline-block;"></span>${p}
+    </span>`).join('');
+  const wrap=document.createElement('div');
+  wrap.className='aging-section';
+  wrap.innerHTML=`<div class="aging-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    <span>${title}</span><div style="display:flex;gap:12px;flex-wrap:wrap;">${legendHTML}</div>
+  </div><div class="aging-rows"></div>`;
+  const rows=wrap.querySelector('.aging-rows');
+  BUCKETS.forEach((b,i)=>{
+    const tot=bucketTotals[i];
+    const barW=tot?Math.max(Math.round(tot/maxTotal*100),2):0;
+    let segHTML='';
+    if(tot>0){
+      PRIO_ORDER.forEach(p=>{
+        const n=resAgStacked[b][p];if(!n)return;
+        const sw=Math.max(Math.round(n/tot*100),2);
+        segHTML+=`<div style="width:${sw}%;background:${PRIO_COLORS[p]}cc;height:100%;display:flex;align-items:center;justify-content:center;" title="${p}: ${n}">
+          ${n>0?`<span style="font-size:10px;font-weight:700;color:#fff;">${n}</span>`:''}</div>`;
+      });
+    }
+    const row=document.createElement('div');row.className='aging-row';
+    row.innerHTML=`
+      <span class="aging-label">${b}</span>
+      <div class="aging-bar-track">
+        <div style="width:${barW}%;height:100%;display:flex;overflow:hidden;border-radius:4px;">${segHTML}</div>
+      </div>
+      <span class="aging-count-right" style="color:${BUCKET_COLORS[i]}">${tot}</span>`;
+    rows.appendChild(row);
+  });
+  return wrap;
+}
+
+function showSLADrill(type,data){
+  const panel=document.getElementById('sla-drill-panel');
+  if(!panel||!data)return;
+  const {frSLA,frVio,resSLA,resVio}=data;
+  const EXCL=['','unspecified','n/a','na','none','not specified'];
+  function topL1(tickets){
+    const m={};
+    tickets.forEach(r=>{const v=(r['VoC L1']||'').trim();if(!EXCL.includes(v.toLowerCase()))m[v]=(m[v]||0)+1;});
+    return Object.entries(m).sort((a,b)=>b[1]-a[1]).slice(0,5);
+  }
+  const ach=type==='fr'?frSLA:resSLA;
+  const vio=type==='fr'?frVio:resVio;
+  const achTop=topL1(ach);const vioTop=topL1(vio);
+  const lbl=type==='fr'?'First Response':'Resolution';
+  panel.innerHTML=`<div class="chart-row">
+    <div class="chart-card">
+      <div class="chart-title" style="color:var(--green)">✓ ${lbl} — SLA Achieved (Top 5 VoC L1)</div>
+      <div class="chart-canvas-wrap" style="height:160px;"><canvas id="chart-sla-ach"></canvas></div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-title" style="color:var(--red)">✗ ${lbl} — SLA Violated (Top 5 VoC L1)</div>
+      <div class="chart-canvas-wrap" style="height:160px;"><canvas id="chart-sla-vio"></canvas></div>
+    </div>
+  </div>`;
+  if(achTop.length) renderChart('chart-sla-ach','bar',achTop.map(e=>e[0]),
+    [{data:achTop.map(e=>e[1]),backgroundColor:'#10b981bb',borderColor:'#10b981',borderWidth:1,borderRadius:4}],
+    {indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}}});
+  if(vioTop.length) renderChart('chart-sla-vio','bar',vioTop.map(e=>e[0]),
+    [{data:vioTop.map(e=>e[1]),backgroundColor:'#ef4444bb',borderColor:'#ef4444',borderWidth:1,borderRadius:4}],
+    {indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{grid:{color:'#1e2a3a'},ticks:{color:'#64748b'}},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}}});
+}
+
+// ─── SLA FILTER INTERACTION ───────────────────────────────────────────────────
+function filterTypeTablesBySLA(status){
+  // Toggle: clicking the active filter clears it
+  window._slaFilter=(window._slaFilter===status||status===null)?null:status;
+  // Sync header SLA dropdown and its visual state
+  const sel=document.getElementById('sla-select');
+  if(sel){
+    sel.value=window._slaFilter||'all';
+    const SLA_COLORS_={green:'#10b981',amber:'#f59e0b',orange:'#f97316',red:'#ef4444'};
+    const v=window._slaFilter;
+    sel.style.borderColor = v ? SLA_COLORS_[v] : 'var(--border2)';
+    sel.style.color = v ? SLA_COLORS_[v] : 'var(--text)';
+    sel.style.fontWeight = v ? '600' : '500';
+  }
+  // Full re-render so all tabs, counters, and charts reflect the SLA filter
+  renderAll();
+}
+
+// ─── VOC L2 DRILL-DOWN ────────────────────────────────────────────────────────
+function toggleL2Drill(key){
+  const drillRow=document.getElementById('l2drill-'+key);
+  if(!drillRow)return;
+
+  // Collapse all other drill rows in the same table (same type prefix)
+  const typePrefix=key.split('-')[0];
+  document.querySelectorAll('[id^="l2drill-'+typePrefix+'-"]').forEach(r=>{
+    if(r.id!=='l2drill-'+key) r.style.display='none';
+  });
+  // Remove active highlight from all sibling rows
+  document.querySelectorAll('[data-l2key^="'+typePrefix+'-"]').forEach(r=>{
+    r.style.background='';r.style.outline='';
+  });
+
+  // Toggle: collapse if already open
+  if(drillRow.style.display!=='none'){drillRow.style.display='none';return;}
+
+  // Highlight the clicked row
+  const triggerRow=document.querySelector('[data-l2key="'+key+'"]');
+  if(triggerRow){triggerRow.style.background='rgba(255,255,255,0.04)';triggerRow.style.outline='inset 0 0 0 1px rgba(255,255,255,0.07)';}
+
+  const data=(window._typeData||{})[key];
+  if(!data){drillRow.style.display='';return;}
+  const EXCL_L2=['','others','other','unspecified','n/a','none'];
+  const l2Map={};
+  data.tickets.forEach(r=>{
+    const v=(r['VoC L2']||'').trim();
+    if(!EXCL_L2.includes(v.toLowerCase())&&v) l2Map[v]=(l2Map[v]||0)+1;
+  });
+  const top3=Object.entries(l2Map).sort((a,b)=>b[1]-a[1]).slice(0,3);
+  const total=data.tickets.length;
+  const l2HTML=top3.length
+    ?top3.map((e,i)=>{
+        const pct=total?Math.round(e[1]/total*100):0;
+        const barW=Math.max(pct,4);
+        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 12px;">
+          <span style="font-size:11px;color:var(--muted2);width:14px;flex-shrink:0;">${i+1}.</span>
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:11px;color:var(--text);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${e[0].replace(/"/g,'&quot;')}">${e[0]}</div>
+            <div style="height:4px;background:var(--surface3);border-radius:2px;overflow:hidden;">
+              <div style="height:100%;width:${barW}%;background:${data.color};border-radius:2px;"></div>
+            </div>
+          </div>
+          <span style="font-size:12px;font-weight:700;color:${data.color};white-space:nowrap;flex-shrink:0;">${e[1]} <span style="font-size:10px;color:var(--muted);font-weight:400;">(${pct}%)</span></span>
+        </div>`;
+      }).join('')
+    :`<div style="padding:6px 12px;font-size:11px;color:var(--muted);">No L2 data (excluding Others)</div>`;
+  drillRow.cells[0].innerHTML=`<div style="background:${data.color}0d;border-left:3px solid ${data.color}66;border-radius:0 6px 6px 0;margin:2px 4px 6px;padding:6px 0 4px;">
+    <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:${data.color};text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:6px;">
+      <span>↳ Top 3 VoC L2</span>
+      <span style="font-weight:400;color:var(--muted2);text-transform:none;letter-spacing:0;">for "${data.l1}" (${total} tickets)</span>
+    </div>
+    ${l2HTML}
+  </div>`;
+  drillRow.style.display='';
 }
 
 function setSortAndRender(catId,col){
