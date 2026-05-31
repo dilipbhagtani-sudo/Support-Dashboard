@@ -34,6 +34,51 @@ const PENDING_STATUSES = new Set([2, 7, 15, 16, 17, 18, 19]);
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
 
+// Google Sheets reference CSV (Enterprise ID → Customer Segment + CSM Name)
+const SHEETS_LOOKUP_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRdTkcqzfVDk-e10HQUQMVY5ZiDYm3-myV3_FZ7mUAwrmLElYfUOwa_eBwBgjJQxtsdBWmpid40NCyU/pub?output=csv';
+
+// ─── Fetch & parse Google Sheets CSV into a lookup map ───────────────────────
+async function fetchEnterpriseLookup() {
+  try {
+    const res = await fetch(SHEETS_LOOKUP_URL);
+    if (!res.ok) return {};
+    const text = await res.text();
+    const lines = text.trim().split('\n');
+    if (lines.length < 2) return {};
+
+    // Parse header row to find column indices
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, '').toLowerCase());
+    const idIdx  = headers.findIndex(h => h.includes('enterprise id') || h === 'id');
+    const segIdx = headers.findIndex(h => h.includes('customer segment') || h.includes('segment'));
+    const csmIdx = headers.findIndex(h => h.includes('csm') || h.includes('customer success'));
+
+    if (idIdx === -1) return {};
+
+    const lookup = {};
+    for (let i = 1; i < lines.length; i++) {
+      // Basic CSV split (handles quoted fields)
+      const cols = lines[i].match(/(".*?"|[^,]+|(?<=,)(?=,)|^(?=,)|(?<=,)$)/g) || lines[i].split(',');
+      const clean = cols.map(c => (c || '').trim().replace(/^"|"$/g, ''));
+      const id = clean[idIdx];
+      if (!id) continue;
+      lookup[id.trim()] = {
+        segment: segIdx !== -1 ? (clean[segIdx] || '') : '',
+        csm:     csmIdx !== -1 ? (clean[csmIdx] || '') : '',
+      };
+    }
+    return lookup;
+  } catch {
+    return {};
+  }
+}
+
+// Extract enterprise ID from "Enterprise Name - ID" format
+function extractEnterpriseId(entName) {
+  if (!entName) return '';
+  const lastDash = entName.lastIndexOf(' - ');
+  return lastDash !== -1 ? entName.slice(lastDash + 3).trim() : '';
+}
+
 // ─── Auth header ─────────────────────────────────────────────────────────────
 function authHeader() {
   return 'Basic ' + Buffer.from(`${API_KEY}:X`).toString('base64');
@@ -75,7 +120,7 @@ function slaStatus(respondedAt, dueBy) {
 }
 
 // ─── Map a Freshdesk ticket → dashboard row ──────────────────────────────────
-function mapTicket(t) {
+function mapTicket(t, lookup = {}) {
   const cf    = t.custom_fields || {};
   const stats = t.stats || {};
   const created = t.created_at || '';
@@ -88,29 +133,41 @@ function mapTicket(t) {
   }
   const resHrs = resMins !== null ? (resMins / 60).toFixed(2) : '';
 
-  // Tags as space-separated string (keeps Jira-linked detection working)
+  // Tags as space-separated string
   const tags = Array.isArray(t.tags) ? t.tags.join(' ') : (t.tags || '');
 
+  // Enrich from Google Sheets lookup via enterprise ID
+  const entName = cf.cf_enterprise_name || '';
+  const entId   = extractEnterpriseId(entName);
+  const entInfo = lookup[entId] || {};
+
+  // Clean enterprise display name (remove trailing " - ID")
+  const lastDash = entName.lastIndexOf(' - ');
+  const entDisplayName = lastDash !== -1 ? entName.slice(0, lastDash).trim() : entName;
+
   return {
-    'Ticket ID':              String(t.id),
-    'Subject':                t.subject || '',
-    'Status':                 STATUS_LABELS[t.status] || String(t.status),
-    'Priority':               PRIORITY_LABELS[t.priority] || String(t.priority),
-    'Product (Studio/Vini)':  cf.cf_product_studiovini || '',
-    'Type':                   t.type || '',               // Bug / Task / Query etc.
-    'Category/Type':          t.type || cf.cf_categorytype || '',
-    'cf_categorytype':        cf.cf_categorytype || '',   // for category filter dropdown
-    'VoC L1':                 cf.cf_voc_l1 || '',
-    'VoC L2':                 cf.cf_voc_l2 || '',
-    'ENT Type':               cf.cf_account_type || cf.cf_account_type1 || '',
-    'Enterprise Name':        cf.cf_enterprise_name || '',
-    'Jira':                   cf.cf_jira_ticket || '',
-    'Tags':                   tags,
-    'Created time':           created,
-    'Month':                  month,
-    // SLA columns (used by All Tickets tab)
-    'First response status':  slaStatus(stats.first_responded_at, t.fr_due_by),
-    'Resolution status':      slaStatus(stats.resolved_at, t.due_by),
+    'Ticket ID':                String(t.id),
+    'Subject':                  t.subject || '',
+    'Status':                   STATUS_LABELS[t.status] || String(t.status),
+    'Priority':                 PRIORITY_LABELS[t.priority] || String(t.priority),
+    'Product (Studio/Vini)':    cf.cf_product_studiovini || '',
+    'Type':                     t.type || '',
+    'Category/Type':            t.type || cf.cf_categorytype || '',
+    'cf_categorytype':          cf.cf_categorytype || '',
+    'VoC L1':                   cf.cf_voc_l1 || '',
+    'VoC L2':                   cf.cf_voc_l2 || '',
+    'Customer Segment':         entInfo.segment || cf.cf_account_type || cf.cf_account_type1 || '',
+    'ENT Type':                 entInfo.segment || cf.cf_account_type || cf.cf_account_type1 || '',
+    'Enterprise Name':          entDisplayName,
+    'Enterprise ID':            entId,
+    'CSM Name':                 entInfo.csm || '',
+    'CSM Name (updated)':       entInfo.csm || '',
+    'Jira':                     cf.cf_jira_ticket || '',
+    'Tags':                     tags,
+    'Created time':             created,
+    'Month':                    month,
+    'First response status':    slaStatus(stats.first_responded_at, t.fr_due_by),
+    'Resolution status':        slaStatus(stats.resolved_at, t.due_by),
     'Resolution time (in hrs)': resHrs,
   };
 }
@@ -128,8 +185,9 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const all = await fetchAllTickets();
-    const mapped = all.map(mapTicket);
+    // Fetch Freshdesk tickets and Google Sheets lookup in parallel
+    const [all, lookup] = await Promise.all([fetchAllTickets(), fetchEnterpriseLookup()]);
+    const mapped = all.map(t => mapTicket(t, lookup));
 
     // Cache for 5 minutes on Vercel Edge
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60');
