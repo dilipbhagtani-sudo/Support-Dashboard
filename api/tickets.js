@@ -108,7 +108,8 @@ function authHeader() {
 
 // ─── Fetch one page of tickets (no status filter — returns all non-resolved) ──
 async function fetchPage(page) {
-  const url = `https://${DOMAIN}.freshdesk.com/api/v2/tickets?page=${page}&per_page=100&include=stats`;
+  // updated_since is required to go beyond Freshdesk's default 30-day window
+  const url = `https://${DOMAIN}.freshdesk.com/api/v2/tickets?page=${page}&per_page=100&include=stats&updated_since=2026-03-01T00:00:00Z`;
   const res = await fetch(url, { headers: { Authorization: authHeader() } });
   if (res.status === 429) {
     await new Promise(r => setTimeout(r, 60000));
