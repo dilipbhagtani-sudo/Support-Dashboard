@@ -569,12 +569,21 @@ function loadFromSheets(){  // keep name so refresh-btn onclick still works
 
 // ─── POPULATE FILTERS ─────────────────────────────────────────────────────────
 function populateFilters(){
-  // Month
+  // Month — derived from created_at, March 2026+ only
   const msel=document.getElementById('month-select');
   while(msel.options.length>1)msel.remove(1);
   msel.value='all';
-  [...new Set(allData.map(r=>r['Month']).filter(Boolean))].sort((a,b)=>+a-+b).forEach(m=>{
-    const o=document.createElement('option');o.value=m;o.textContent=MONTH_NAMES[+m]||'Month '+m;msel.appendChild(o);
+  const _monthCutoff=new Date(2026,2,1); // 1 March 2026
+  const _monthSet=new Set();
+  allData.forEach(r=>{
+    const ct=getCreatedTime(r);if(!ct)return;
+    const d=new Date(ct);if(isNaN(d.getTime()))return;
+    if(d>=_monthCutoff)_monthSet.add(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`);
+  });
+  [..._monthSet].sort().forEach(ym=>{
+    const [y,m]=ym.split('-');
+    const o=document.createElement('option');o.value=ym;
+    o.textContent=`${MONTH_NAMES[+m]} ${y}`;msel.appendChild(o);
   });
   // Category/Type
   const csel=document.getElementById('category-select');
@@ -611,7 +620,12 @@ function getFiltered(){
   const csmf=(document.getElementById('csm-select')||{}).value||'all';
   const sf=(document.getElementById('sla-select')||{}).value||'all';
   return allData.filter(r=>{
-    if(mf!=='all'&&r['Month']!==mf)return false;
+    if(mf!=='all'){
+      const ct=getCreatedTime(r);if(!ct)return false;
+      const d=new Date(ct);if(isNaN(d.getTime()))return false;
+      const ym=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      if(ym!==mf)return false;
+    }
     if(pf!=='all'&&r['Product (Studio/Vini)']!==pf)return false;
     if(prf!=='all'&&r['Priority']!==prf)return false;
     if(cf!=='all'&&(r['cf_categorytype']||r['Category/Type']||'').trim()!==cf)return false;
