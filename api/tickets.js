@@ -106,29 +106,32 @@ function authHeader() {
   return 'Basic ' + Buffer.from(`${API_KEY}:X`).toString('base64');
 }
 
-// ─── Fetch one page of tickets (no status filter — returns all non-resolved) ──
+// ─── Fetch one page of tickets ───────────────────────────────────────────────
 async function fetchPage(page) {
   // updated_since is required to go beyond Freshdesk's default 30-day window
   const url = `https://${DOMAIN}.freshdesk.com/api/v2/tickets?page=${page}&per_page=100&include=stats&updated_since=2026-03-01T00:00:00Z`;
-  const res = await fetch(url, { headers: { Authorization: authHeader() } });
-  if (res.status === 429) {
-    await new Promise(r => setTimeout(r, 60000));
-    const retry = await fetch(url, { headers: { Authorization: authHeader() } });
-    if (!retry.ok) return [];
-    return retry.json();
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000); // 8s per page
+  try {
+    const res = await fetch(url, { headers: { Authorization: authHeader() }, signal: controller.signal });
+    clearTimeout(timer);
+    if (res.status === 429) return null; // rate limited — stop pagination gracefully
+    if (!res.ok) return [];
+    return res.json();
+  } catch {
+    clearTimeout(timer);
+    return []; // timeout or network error — return empty, stop pagination
   }
-  if (!res.ok) return [];
-  return res.json();
 }
 
 // ─── Fetch ALL tickets and filter to pending statuses ────────────────────────
 async function fetchAllTickets() {
   const all = [];
   let page = 1;
-  while (true) {
+  while (page <= 30) { // cap at 30 pages (3000 tickets) as a safety limit
     const tickets = await fetchPage(page);
+    if (tickets === null) break; // rate limited
     if (!Array.isArray(tickets) || tickets.length === 0) break;
-    // Keep only tickets with a pending status
     tickets.forEach(t => { if (PENDING_STATUSES.has(t.status)) all.push(t); });
     if (tickets.length < 100) break;
     page++;
