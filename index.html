@@ -546,12 +546,21 @@ function loadFromSheets(){  // keep name so refresh-btn onclick still works
   document.getElementById('load-title').textContent='Loading Dashboard';
   document.getElementById('load-msg').textContent='Fetching live data from Freshdesk…';
   document.getElementById('load-error').style.display='none';
-  fetch(FRESHDESK_API_URL)
+  const ctrl=new AbortController();
+  const loadTimer=setTimeout(()=>{
+    ctrl.abort();
+    document.getElementById('load-icon').textContent='⏱';
+    document.getElementById('load-title').textContent='Taking too long';
+    document.getElementById('load-msg').textContent='The server is still fetching tickets. Try refreshing — it may be cached now.';
+    const el=document.getElementById('load-error');el.textContent='Request timed out after 55s.';el.style.display='block';
+  },55000);
+  fetch(FRESHDESK_API_URL,{signal:ctrl.signal})
     .then(r=>{
       if(!r.ok) throw new Error('API returned '+r.status);
       return r.json();
     })
     .then(data=>{
+      clearTimeout(loadTimer);
       allData=data;
       populateFilters();
       document.getElementById('load-screen').classList.add('hidden');
@@ -560,6 +569,8 @@ function loadFromSheets(){  // keep name so refresh-btn onclick still works
       renderAll();
     })
     .catch(e=>{
+      clearTimeout(loadTimer);
+      if(e.name==='AbortError')return; // already handled by loadTimer
       document.getElementById('load-icon').textContent='❌';
       document.getElementById('load-title').textContent='Could not load data';
       document.getElementById('load-msg').textContent='Check that FRESHDESK_DOMAIN and FRESHDESK_API_KEY are set in Vercel.';
