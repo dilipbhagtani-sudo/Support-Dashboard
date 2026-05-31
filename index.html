@@ -226,8 +226,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="creative">Pending at Creative <span class="tab-badge" id="badge-creative">0</span></div>
     <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
     <div class="tab" data-tab="alltickets">All Tickets <span class="tab-badge" id="badge-alltickets">0</span></div>
+    <div class="tab" data-tab="enterprise">Enterprise <span class="tab-badge" id="badge-enterprise">0</span></div>
   </div>
 
+  <div id="voc-l2-filter-banner"></div>
   <!-- OVERVIEW TAB -->
   <div class="tab-content active" id="tab-overview">
     <div class="summary-banner">
@@ -277,6 +279,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-creative"><div id="detail-creative"></div></div>
   <div class="tab-content" id="tab-onhold"><div id="detail-onhold"></div></div>
   <div class="tab-content" id="tab-alltickets"><div id="detail-alltickets"></div></div>
+  <div class="tab-content" id="tab-enterprise"><div id="detail-enterprise"></div></div>
 
 </div>
 
@@ -324,9 +327,10 @@ const PRIO_ORDER  = ['Urgent','High','Medium','Low'];
 let allData   = [];
 let charts    = {};
 let sortState = {};
-window._slaFilter = null;        // active SLA band filter (null | 'green'|'amber'|'orange'|'red')
-window._typeBaseTickets = [];    // full pending set for SLA filtering
-window._typeData = {};           // key -> {tickets, l1, color} for L2 drill-down
+window._slaFilter    = null;  // active SLA band filter
+window._vocL2Filter  = null;  // active VoC L2 filter
+window._typeBaseTickets = [];
+window._typeData = {};
 
 // ─── AUTH GATE ────────────────────────────────────────────────────────────────
 (function(){
@@ -347,6 +351,102 @@ document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>swit
 function switchTab(id){
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active',t.dataset.tab===id));
   document.querySelectorAll('.tab-content').forEach(c=>c.classList.toggle('active',c.id==='tab-'+id));
+}
+
+
+// ─── ENTERPRISE TAB ──────────────────────────────────────────────────────────
+function renderEnterpriseTab(tickets) {
+  const el = document.getElementById('detail-enterprise');
+  const badge = document.getElementById('badge-enterprise');
+  if (!el) return;
+  if (badge) badge.textContent = tickets.length;
+
+  if (!tickets.length) {
+    el.innerHTML = `<div class="empty-state"><span class="icon">🏢</span><strong>No tickets</strong><br>No data for selected filters.</div>`;
+    return;
+  }
+
+  // Build enterprise → tickets map
+  const entMap = {};
+  tickets.forEach(r => {
+    const ent = (r['Enterprise Name'] || 'Unknown').trim();
+    if (!entMap[ent]) entMap[ent] = { tickets: [], urgent: 0, high: 0, medium: 0, low: 0 };
+    entMap[ent].tickets.push(r);
+    const p = r['Priority'];
+    if (p === 'Urgent') entMap[ent].urgent++;
+    else if (p === 'High') entMap[ent].high++;
+    else if (p === 'Medium') entMap[ent].medium++;
+    else if (p === 'Low') entMap[ent].low++;
+  });
+
+  const sorted = Object.entries(entMap).sort((a, b) => b[1].tickets.length - a[1].tickets.length);
+
+  const rows = sorted.map(([ent, data], i) => {
+    const maxDays = Math.max(...data.tickets.map(r => daysOpen(r) ?? 0));
+    const slaBreached = data.tickets.filter(r => getSLAStatus(r) === 'red').length;
+    return `<tr style="cursor:pointer;" onclick="toggleEnterpriseTickets('ent-${i}', ${JSON.stringify(ent).replace(/</g,'&lt;')})">
+      <td style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--text);">${ent} <span style="font-size:10px;color:var(--muted);">▾</span></td>
+      <td style="padding:8px 12px;font-size:14px;font-weight:700;color:var(--accent);">${data.tickets.length}</td>
+      <td style="padding:8px 12px;">${data.urgent ? `<span style="color:#ef4444;font-weight:700;">${data.urgent}U</span> ` : ''}${data.high ? `<span style="color:#f59e0b;font-weight:600;">${data.high}H</span>` : ''}</td>
+      <td style="padding:8px 12px;font-size:12px;color:${maxDays > 14 ? 'var(--red)' : maxDays > 7 ? 'var(--amber)' : 'var(--green)'};">${maxDays}d max</td>
+      <td style="padding:8px 12px;">${slaBreached ? `<span style="color:#ef4444;font-size:12px;font-weight:600;">🔴 ${slaBreached} breached</span>` : '<span style="color:#10b981;font-size:12px;">✅ OK</span>'}</td>
+    </tr>
+    <tr id="ent-${i}-tickets" style="display:none;">
+      <td colspan="5" style="padding:0 12px 8px;">
+        <div id="ent-${i}-content"></div>
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div class="summary-banner" style="margin-bottom:16px;">
+      <div class="sb-main">
+        <div class="sb-label">Enterprises with Pending Tickets</div>
+        <div class="sb-value" style="color:var(--accent)">${sorted.length}</div>
+      </div>
+    </div>
+    <div class="table-wrap">
+      <table class="ticket-table">
+        <thead><tr>
+          <th>Enterprise</th>
+          <th>Total</th>
+          <th>Priority</th>
+          <th>Max Age</th>
+          <th>SLA</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>`;
+
+  // Store data for drill-down
+  window._entData = Object.fromEntries(sorted.map(([e, d], i) => [`ent-${i}`, { ent: e, tickets: d.tickets }]));
+}
+
+function toggleEnterpriseTickets(key, entName) {
+  const row = document.getElementById(key + '-tickets');
+  const content = document.getElementById(key + '-content');
+  if (!row) return;
+  const isOpen = row.style.display !== 'none';
+  // Close all
+  document.querySelectorAll('[id$="-tickets"]').forEach(r => r.style.display = 'none');
+  if (isOpen) return;
+  row.style.display = '';
+  const data = window._entData && window._entData[key];
+  if (!data || !content) return;
+  const tickets = [...data.tickets].sort((a, b) => (daysOpen(b) ?? 0) - (daysOpen(a) ?? 0));
+  content.innerHTML = `
+    <table class="ticket-table" style="margin-top:4px;">
+      <thead><tr><th>Ticket ID</th><th>Subject</th><th>Status</th><th>Priority</th><th>Days Open</th><th>VoC L1</th></tr></thead>
+      <tbody>${tickets.map(r => `<tr>
+        <td><a class="tid" href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank">#${r['Ticket ID']}</a></td>
+        <td><span class="subject">${r['Subject'] || '—'}</span></td>
+        <td style="font-size:11px;color:var(--muted);">${r['Status'] || '—'}</td>
+        <td>${prioBadge(r['Priority'])}</td>
+        <td>${daysBadge(daysOpen(r))}</td>
+        <td style="font-size:12px;color:var(--muted);">${r['VoC L1'] || '—'}</td>
+      </tr>`).join('')}
+      </tbody>
+    </table>`;
 }
 
 // ─── FRESHDESK FETCH ──────────────────────────────────────────────────────────
@@ -391,7 +491,7 @@ function populateFilters(){
   const csel=document.getElementById('category-select');
   while(csel.options.length>1)csel.remove(1);
   csel.value='all';
-  [...new Set(allData.map(r=>(r['Category/Type']||'').trim()).filter(Boolean))].sort().forEach(c=>{
+  [...new Set(allData.map(r=>(r['cf_categorytype']||r['Category/Type']||'').trim()).filter(Boolean))].sort().forEach(c=>{
     const o=document.createElement('option');o.value=c;o.textContent=c;csel.appendChild(o);
   });
   // ENT Type
@@ -415,9 +515,10 @@ function getFiltered(){
     if(mf!=='all'&&r['Month']!==mf)return false;
     if(pf!=='all'&&r['Product (Studio/Vini)']!==pf)return false;
     if(prf!=='all'&&r['Priority']!==prf)return false;
-    if(cf!=='all'&&(r['Category/Type']||'').trim()!==cf)return false;
+    if(cf!=='all'&&(r['cf_categorytype']||r['Category/Type']||'').trim()!==cf)return false;
     if(ef!=='all'&&(r['ENT Type']||'').trim()!==ef)return false;
     if(sf!=='all'&&getSLAStatus(r)!==sf)return false;
+    if(window._vocL2Filter&&(r['VoC L2']||'').trim()!==window._vocL2Filter)return false;
     return true;
   });
 }
@@ -436,6 +537,24 @@ function onHeaderSLAChange(){
     sel.style.fontWeight = sf==='all' ? '500' : '600';
   }
   renderAll();
+}
+
+// ─── VOC L2 FILTER ───────────────────────────────────────────────────────────
+function filterByVocL2(l2val) {
+  window._vocL2Filter = window._vocL2Filter === l2val ? null : l2val;
+  renderAll();
+  // Show active filter banner
+  const banner = document.getElementById('voc-l2-filter-banner');
+  if (banner) {
+    if (window._vocL2Filter) {
+      banner.innerHTML = `<div style="background:#8b5cf622;border:1px solid #8b5cf6;border-radius:10px;padding:6px 14px;font-size:12px;display:flex;align-items:center;gap:10px;margin:0 24px 12px;">
+        <span style="color:#8b5cf6;font-weight:600;">🔍 Filtering by VoC L2: ${window._vocL2Filter}</span>
+        <span onclick="filterByVocL2(null)" style="cursor:pointer;color:#ef4444;font-weight:700;">✕ Clear</span>
+      </div>`;
+    } else {
+      banner.innerHTML = '';
+    }
+  }
 }
 
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
@@ -531,6 +650,7 @@ function renderAll(){
   renderOverview(buckets,total);
   CATEGORIES.forEach(cat=>renderDetail(cat,buckets[cat.id]));
   renderAllTicketsTab(base);
+  renderEnterpriseTab(base);
 }
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
