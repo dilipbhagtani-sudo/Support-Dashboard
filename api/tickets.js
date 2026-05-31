@@ -29,8 +29,8 @@ const STATUS_LABELS = {
   19: 'Pending at Production',
 };
 
-// Statuses that count as "pending" for the dashboard
-const PENDING_STATUSES = [2, 7, 15, 16, 17, 18, 19];
+// Pending status codes to keep (filter applied after fetching)
+const PENDING_STATUSES = new Set([2, 7, 15, 16, 17, 18, 19]);
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
 
@@ -39,19 +39,11 @@ function authHeader() {
   return 'Basic ' + Buffer.from(`${API_KEY}:X`).toString('base64');
 }
 
-// ─── Fetch one page of tickets for a given status ────────────────────────────
-async function fetchPage(status, page) {
-  const url = [
-    `https://${DOMAIN}.freshdesk.com/api/v2/tickets`,
-    `?status=${status}`,
-    `&page=${page}`,
-    `&per_page=100`,
-    `&include=stats`,          // gives first_responded_at, resolved_at, due_by, fr_due_by
-  ].join('');
-
+// ─── Fetch one page of tickets (no status filter — returns all non-resolved) ──
+async function fetchPage(page) {
+  const url = `https://${DOMAIN}.freshdesk.com/api/v2/tickets?page=${page}&per_page=100&include=stats`;
   const res = await fetch(url, { headers: { Authorization: authHeader() } });
   if (res.status === 429) {
-    // Rate limited — wait 60s and retry once
     await new Promise(r => setTimeout(r, 60000));
     const retry = await fetch(url, { headers: { Authorization: authHeader() } });
     if (!retry.ok) return [];
@@ -61,15 +53,16 @@ async function fetchPage(status, page) {
   return res.json();
 }
 
-// ─── Fetch ALL pages for a given status ─────────────────────────────────────
-async function fetchAllForStatus(status) {
+// ─── Fetch ALL tickets and filter to pending statuses ────────────────────────
+async function fetchAllTickets() {
   const all = [];
   let page = 1;
   while (true) {
-    const tickets = await fetchPage(status, page);
+    const tickets = await fetchPage(page);
     if (!Array.isArray(tickets) || tickets.length === 0) break;
-    all.push(...tickets);
-    if (tickets.length < 100) break;  // last page
+    // Keep only tickets with a pending status
+    tickets.forEach(t => { if (PENDING_STATUSES.has(t.status)) all.push(t); });
+    if (tickets.length < 100) break;
     page++;
   }
   return all;
@@ -133,9 +126,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Fetch all pending statuses in parallel
-    const batches = await Promise.all(PENDING_STATUSES.map(fetchAllForStatus));
-    const all = batches.flat();
+    const all = await fetchAllTickets();
     const mapped = all.map(mapTicket);
 
     // Cache for 5 minutes on Vercel Edge
