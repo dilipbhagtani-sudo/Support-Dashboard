@@ -97,7 +97,7 @@ function mapTicket(t) {
     'Status':                 STATUS_LABELS[t.status] || String(t.status),
     'Priority':               PRIORITY_LABELS[t.priority] || String(t.priority),
     'Product (Studio/Vini)':  cf.cf_product_studiovini || '',
-    'Category/Type':          cf.cf_categorytype || '',
+    'Category/Type':          t.type || cf.cf_categorytype || '',
     'VoC L1':                 cf.cf_voc_l1 || '',
     'VoC L2':                 cf.cf_voc_l2 || '',
     'ENT Type':               cf.cf_account_type || cf.cf_account_type1 || '',
