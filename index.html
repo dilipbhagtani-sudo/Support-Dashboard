@@ -389,23 +389,20 @@ function renderEnterpriseTab(tickets) {
 
   const sorted = Object.entries(entMap).sort((a, b) => b[1].tickets.length - a[1].tickets.length);
 
-  window._entData = {};
+  if (!window._viewerStore) window._viewerStore = {};
   const rows = sorted.map(([ent, data], i) => {
-    const key = 'ent_' + i;
-    window._entData[key] = data;
+    const vsk = 'ent_view_' + i;
+    window._viewerStore[vsk] = { tickets: data.tickets, label: '🏢 ' + ent, color: '#3b82f6' };
     const maxDays = data.tickets.length ? Math.max(...data.tickets.map(r => daysOpen(r) ?? 0)) : 0;
     const slaBreached = data.tickets.filter(r => getSLAStatus(r) === 'red').length;
     const csms = [...new Set(data.tickets.map(r => r['CSM Name']||r['CSM Name (updated)']||'').filter(Boolean))].join(', ') || '—';
-    return `<tr style="cursor:pointer;" onclick="toggleDrillRow(this.querySelector('button'), '_entData', '${key}')">
-      <td style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--text);"><button class="drill-arrow" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-right:4px;">▾</button>${ent.replace(/</g,'&lt;')}</td>
+    return `<tr style="cursor:pointer;" onclick="showEntTickets('${vsk}', this)">
+      <td style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--accent);">→ ${ent.replace(/</g,'&lt;')}</td>
       <td style="padding:8px 12px;font-size:14px;font-weight:700;color:var(--accent);">${data.tickets.length}</td>
       <td style="padding:8px 12px;">${data.urgent ? `<span style="color:#ef4444;font-weight:700;">${data.urgent}U</span> ` : ''}${data.high ? `<span style="color:#f59e0b;font-weight:600;">${data.high}H</span>` : ''}</td>
       <td style="padding:8px 12px;font-size:12px;color:${maxDays > 14 ? 'var(--red)' : maxDays > 7 ? 'var(--amber)' : 'var(--green)'};">${maxDays}d max</td>
       <td style="padding:8px 12px;font-size:12px;color:var(--muted);">${csms}</td>
       <td style="padding:8px 12px;">${slaBreached ? `<span style="color:#ef4444;font-size:12px;font-weight:600;">🔴 ${slaBreached} breached</span>` : '<span style="color:#10b981;font-size:12px;">✅ OK</span>'}</td>
-    </tr>
-    <tr class="drill-content-row" style="display:none;background:var(--surface2);">
-      <td colspan="6" class="drill-content-cell" style="padding:4px 16px;"></td>
     </tr>`;
   }).join('');
 
@@ -415,8 +412,10 @@ function renderEnterpriseTab(tickets) {
         <div class="sb-label">Enterprises with Pending Tickets</div>
         <div class="sb-value" style="color:var(--accent)">${sorted.length}</div>
       </div>
+      <div class="sb-divider"></div>
+      <div style="font-size:12px;color:var(--muted);">Click any enterprise to view its tickets below</div>
     </div>
-    <div class="table-wrap">
+    <div class="table-wrap" style="margin-bottom:16px;">
       <table class="ticket-table">
         <thead><tr>
           <th>Enterprise</th>
@@ -428,7 +427,8 @@ function renderEnterpriseTab(tickets) {
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
-    </div>`;
+    </div>
+    <div id="ent-ticket-panel"></div>`;
 
 
 }
@@ -464,7 +464,7 @@ function toggleDrillRow(btnEl, storeName, key) {
   btnEl.closest('tbody').querySelectorAll('.drill-arrow').forEach(a => a.textContent = '▾');
   if (isOpen) return;
   drillRow.style.display = '';
-  btnEl.querySelector('.drill-arrow').textContent = '▴';
+  btnEl.textContent = '▴'; // btnEl IS the drill-arrow button
   const contentCell = drillRow.querySelector('.drill-content-cell');
   if (contentCell && !contentCell.dataset.loaded) {
     contentCell.innerHTML = buildTicketSubTable(data.tickets);
@@ -652,6 +652,24 @@ function getFiltered(){
   });
 }
 
+// Same filters as getFiltered() but applied to ALL tickets (including resolved) for Monthly Summary
+function getFilteredAllTickets() {
+  const all = window._allTicketsData || allData;
+  const pf  = document.getElementById('product-select').value;
+  const prf = document.getElementById('priority-select').value;
+  const cf  = document.getElementById('category-select').value;
+  const ef  = document.getElementById('enttype-select').value;
+  const csmf = (document.getElementById('csm-select') || {}).value || 'all';
+  return all.filter(r => {
+    if (pf  !== 'all' && r['Product (Studio/Vini)'] !== pf) return false;
+    if (prf !== 'all' && r['Priority'] !== prf) return false;
+    if (cf  !== 'all' && (r['cf_categorytype'] || r['Category/Type'] || '').trim() !== cf) return false;
+    if (ef  !== 'all' && (r['ENT Type'] || '').trim() !== ef) return false;
+    if (csmf !== 'all' && (r['CSM Name'] || r['CSM Name (updated)'] || '').trim() !== csmf) return false;
+    return true;
+  });
+}
+
 // ─── HEADER SLA FILTER HANDLER ───────────────────────────────────────────────
 function onHeaderSLAChange(){
   // Sync the header SLA dropdown with the breachometer band filter so both stay in step
@@ -781,7 +799,7 @@ function renderAll(){
   renderAllTicketsTab(base);
   renderEnterpriseTab(base);
   renderCsmTab(base);
-  renderSummaryTab(window._allTicketsData||allData);
+  renderSummaryTab(getFilteredAllTickets());
 }
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
@@ -1643,13 +1661,20 @@ function toggleL2Drill(key){
   });
   const top3=Object.entries(l2Map).sort((a,b)=>b[1]-a[1]).slice(0,3);
   const total=data.tickets.length;
+  // Store ticket sets by key to avoid inline JSON in onclick (breaks on special chars)
+  if (!window._viewerStore) window._viewerStore = {};
+  const storeKey = 'voc_' + Date.now();
+  const storeKeyAll = storeKey + '_all';
+  window._viewerStore[storeKeyAll] = { tickets: data.tickets, label: 'VoC L1: ' + data.l1, color: data.color };
+
   const l2HTML=top3.length
     ?top3.map((e,i)=>{
         const pct=total?Math.round(e[1]/total*100):0;
         const barW=Math.max(pct,4);
         const l2Tickets=data.tickets.filter(r=>(r['VoC L2']||'').trim()===e[0]);
-        const safeL2=e[0].replace(/'/g,"\\'").replace(/"/g,'&quot;');
-        return `<div onclick="showTicketViewerPanel(${JSON.stringify(l2Tickets)}, 'VoC L2: ${safeL2}', '${data.color}')" style="display:flex;align-items:center;gap:8px;padding:4px 12px;cursor:pointer;border-radius:6px;transition:background .15s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background=''">
+        const sk = storeKey + '_l2_' + i;
+        window._viewerStore[sk] = { tickets: l2Tickets, label: 'VoC L2: ' + e[0], color: data.color };
+        return `<div onclick="showTicketViewerFromStore('${sk}')" style="display:flex;align-items:center;gap:8px;padding:4px 12px;cursor:pointer;border-radius:6px;transition:background .15s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background=''">
           <span style="font-size:11px;color:var(--muted2);width:14px;flex-shrink:0;">${i+1}.</span>
           <div style="flex:1;min-width:0;">
             <div style="font-size:11px;color:var(--text);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${e[0].replace(/"/g,'&quot;')}">${e[0]} <span style="font-size:10px;color:var(--accent);">→ view tickets</span></div>
@@ -1661,7 +1686,7 @@ function toggleL2Drill(key){
         </div>`;
       }).join('')
     :`<div style="padding:6px 12px;font-size:11px;color:var(--muted);">No L2 data (excluding Others)</div>`;
-  const viewAllBtn=`<div onclick="showTicketViewerPanel(${JSON.stringify(data.tickets)}, 'VoC L1: ${data.l1.replace(/'/g,"\\'")}', '${data.color}')" style="margin:4px 12px 2px;padding:4px 10px;font-size:11px;color:${data.color};border:1px solid ${data.color}44;border-radius:6px;cursor:pointer;text-align:center;transition:background .15s;" onmouseover="this.style.background='${data.color}18'" onmouseout="this.style.background=''">View all ${total} tickets →</div>`;
+  const viewAllBtn=`<div onclick="showTicketViewerFromStore('${storeKeyAll}')" style="margin:4px 12px 2px;padding:4px 10px;font-size:11px;color:${data.color};border:1px solid ${data.color}44;border-radius:6px;cursor:pointer;text-align:center;transition:background .15s;" onmouseover="this.style.background='${data.color}18'" onmouseout="this.style.background=''">View all ${total} tickets →</div>`;
   drillRow.cells[0].innerHTML=`<div style="background:${data.color}0d;border-left:3px solid ${data.color}66;border-radius:0 6px 6px 0;margin:2px 4px 6px;padding:6px 0 4px;">
     <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:${data.color};text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:6px;">
       <span>↳ Top 3 VoC L2</span>
@@ -1682,6 +1707,55 @@ function setSortAndRender(catId,col){
 }
 
 // ─── TICKET VIEWER PANEL (VoC drill click-through) ───────────────────────────
+// Show enterprise tickets inline in the Enterprise tab
+function showEntTickets(key, rowEl) {
+  const entry = (window._viewerStore || {})[key];
+  if (!entry) return;
+  // Highlight selected row
+  rowEl.closest('tbody').querySelectorAll('tr').forEach(r => r.style.background = '');
+  rowEl.style.background = 'rgba(59,130,246,0.12)';
+  const panel = document.getElementById('ent-ticket-panel');
+  if (!panel) return;
+  const tickets = entry.tickets;
+  const sorted = [...tickets].sort((a, b) => (daysOpen(b) ?? 0) - (daysOpen(a) ?? 0));
+  const rows = sorted.map(r => {
+    const d = daysOpen(r);
+    const ent = (r['Enterprise Name'] || '—').replace(/</g, '&lt;');
+    const subj = (r['Subject'] || '—').replace(/</g, '&lt;');
+    return `<tr>
+      <td><a class="tid" href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank" rel="noopener">#${r['Ticket ID']}</a></td>
+      <td><span class="subject" title="${subj}">${subj}</span></td>
+      <td style="font-size:12px;">${r['Product (Studio/Vini)'] || '—'}</td>
+      <td>${prioBadge(r['Priority'])}</td>
+      <td style="font-size:12px;color:var(--muted);">${r['Status'] || '—'}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r['CSM Name'] || r['CSM Name (updated)'] || '—'}</td>
+      <td>${daysBadge(d)}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r['VoC L1'] || '—'}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r['VoC L2'] || '—'}</td>
+    </tr>`;
+  }).join('');
+  panel.innerHTML = `<div class="chart-card" style="border-top:3px solid #3b82f6;padding:14px 16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <div class="chart-title" style="color:#3b82f6;margin-bottom:0;">${entry.label} <span style="font-size:12px;font-weight:400;color:var(--muted);">(${tickets.length} tickets)</span></div>
+      <button onclick="document.getElementById('ent-ticket-panel').innerHTML='';rowEl&&(rowEl.style.background='')" style="background:var(--surface2);border:1px solid var(--border2);color:var(--muted);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="ticket-table">
+        <thead><tr><th>Ticket ID</th><th>Subject</th><th>Product</th><th>Priority</th><th>Status</th><th>CSM</th><th>Days Open</th><th>VoC L1</th><th>VoC L2</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function showTicketViewerFromStore(key) {
+  if (!window._viewerStore) return;
+  const entry = window._viewerStore[key];
+  if (!entry) return;
+  showTicketViewerPanel(entry.tickets, entry.label, entry.color);
+}
+
 function showTicketViewerPanel(tickets, label, color) {
   const panel = document.getElementById('ticket-viewer-panel');
   if (!panel) return;
@@ -1763,9 +1837,16 @@ function renderSummaryTab(allTickets) {
   }
 
   function avgResHrs(tickets) {
-    const hrs = tickets.map(r => parseFloat(r['Resolution time (in hrs)'])).filter(h => !isNaN(h) && h > 0);
+    // Compute directly from created_at → resolved_at dates (most accurate)
+    const hrs = tickets.map(r => {
+      const ra = r['Resolved at']; if (!ra) return null;
+      const ct = getCreatedTime(r); if (!ct) return null;
+      const created = new Date(ct), resolved = new Date(ra);
+      if (isNaN(created) || isNaN(resolved) || resolved <= created) return null;
+      return (resolved - created) / 3600000; // ms → hours
+    }).filter(h => h !== null && h > 0);
     if (!hrs.length) return null;
-    return (hrs.reduce((s, h) => s + h, 0) / hrs.length);
+    return hrs.reduce((s, h) => s + h, 0) / hrs.length;
   }
 
   function fmtHrs(h) {
