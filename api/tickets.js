@@ -194,6 +194,7 @@ function mapTicket(t, lookup = {}) {
     'Resolved at':              stats.resolved_at || '',
     'Month':                    month,
     'First response status':    slaStatus(stats.first_responded_at, t.fr_due_by),
+    'Next response status':     slaStatus(stats.agent_responded_at, t.nr_due_by),
     'Resolution status':        slaStatus(stats.resolved_at, t.due_by),
     'Resolution time (in hrs)': resHrs,
     // Flag so the frontend can split pending vs. resolved tickets
