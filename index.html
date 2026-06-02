@@ -145,18 +145,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 </head>
 <body>
 
-<!-- AUTH GATE -->
-<div id="spyne-gate">
-  <div class="gate-card">
-    <div class="gate-logo"><span>Spyne</span> Pendency Dashboard</div>
-    <div class="gate-subtitle">Internal tool — Spyne team access only</div>
-    <div class="gate-label">Work Email</div>
-    <input class="gate-input" id="gate-email" type="email" placeholder="you@spyne.ai" autocomplete="email"/>
-    <div class="gate-error" id="gate-error"></div>
-    <button class="gate-btn" id="gate-submit">Access Dashboard</button>
-    <div class="gate-footer">Only @spyne.ai email addresses are permitted</div>
-  </div>
-</div>
+<!-- AUTH GATE REMOVED -->
 
 <!-- LOADING -->
 <div id="load-screen">
@@ -218,6 +207,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
   <!-- TABS -->
   <div class="tabs">
+    <div class="tab" data-tab="studio-overview">🎬 Studio Overview</div>
+    <div class="tab" data-tab="vini-overview">🚗 Vini Overview</div>
     <div class="tab active" data-tab="overview">Overview</div>
     <div class="tab" data-tab="psopen">PS Open <span class="tab-badge" id="badge-psopen">0</span></div>
     <div class="tab" data-tab="l1">L1 Pendency <span class="tab-badge" id="badge-l1">0</span></div>
@@ -233,6 +224,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
     <div class="tab" data-tab="summary">📊 Monthly Summary</div>
   </div>
+
+  <!-- STUDIO OVERVIEW TAB -->
+  <div class="tab-content" id="tab-studio-overview"><div id="detail-studio-overview"></div></div>
+  <!-- VINI OVERVIEW TAB -->
+  <div class="tab-content" id="tab-vini-overview"><div id="detail-vini-overview"></div></div>
 
   <div id="voc-l2-filter-banner"></div>
   <!-- OVERVIEW TAB -->
@@ -340,19 +336,7 @@ window._vocL2Filter  = null;  // active VoC L2 filter
 window._typeBaseTickets = [];
 window._typeData = {};
 
-// ─── AUTH GATE ────────────────────────────────────────────────────────────────
-(function(){
-  const gate=document.getElementById('spyne-gate'),input=document.getElementById('gate-email'),err=document.getElementById('gate-error'),btn=document.getElementById('gate-submit');
-  if(sessionStorage.getItem('spyne_auth')==='1'){gate.classList.add('hidden');return;}
-  function go(){
-    const e=input.value.trim().toLowerCase();
-    if(!e){err.textContent='Please enter your email.';input.classList.add('error');return;}
-    if(!e.endsWith('@spyne.ai')){err.textContent='Access restricted to @spyne.ai addresses.';input.classList.add('error');return;}
-    sessionStorage.setItem('spyne_auth','1');gate.classList.add('hidden');
-  }
-  btn.addEventListener('click',go);
-  input.addEventListener('keydown',e=>{if(e.key==='Enter')go();input.classList.remove('error');err.textContent='';});
-})();
+// Auth gate removed
 
 // ─── TABS ─────────────────────────────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(t=>t.addEventListener('click',()=>switchTab(t.dataset.tab)));
@@ -800,6 +784,201 @@ function renderAll(){
   renderEnterpriseTab(base);
   renderCsmTab(base);
   renderSummaryTab(getFilteredAllTickets());
+  renderProductOverview('Studio','detail-studio-overview', base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
+  renderProductOverview('Vini',  'detail-vini-overview',   base.filter(r=>r['Product (Studio/Vini)']==='Vini'));
+}
+
+// ─── PRODUCT OVERVIEW (Studio / Vini) ────────────────────────────────────────
+function renderProductOverview(product, containerId, tickets) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  const color  = product === 'Studio' ? '#3b82f6' : '#10b981';
+  const icon   = product === 'Studio' ? '🎬' : '🚗';
+  const today  = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
+  const nowYM  = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
+  const mnName = MONTH_NAMES[new Date().getMonth()+1] + ' ' + new Date().getFullYear();
+
+  // ── KPI ──────────────────────────────────────────────────────────────────────
+  const total   = tickets.length;
+  const breached = tickets.filter(r => getSLAStatus(r) === 'red').length;
+  const atRisk   = tickets.filter(r => { const s=getSLAStatus(r); return s==='amber'||s==='orange'; }).length;
+  const onTrack  = tickets.filter(r => getSLAStatus(r) === 'green').length;
+
+  // ── Status-wise pendency ──────────────────────────────────────────────────────
+  // Define which statuses are relevant for this product
+  const productStatuses = product === 'Studio' ? [
+    { label: 'PS Open',                 filter: r => r['Status']==='Open' },
+    { label: 'L1 Pendency',             filter: r => r['Status']==='Pending L1 (Technical)' },
+    { label: 'L2 Studio',               filter: r => r['Status']==='Pending L2 (Technical)' },
+    { label: 'Waiting on Product',      filter: r => r['Status']==='Waiting on Product' },
+    { label: 'Pending at Production',   filter: r => r['Status']==='Pending at Production' },
+    { label: 'Pending at Creative',     filter: r => r['Status']==='Pending at Creative' },
+    { label: 'PS On Hold',              filter: r => r['Status']==='On Hold (Internal)' },
+  ] : [
+    { label: 'PS Open',                 filter: r => r['Status']==='Open' },
+    { label: 'L1 Pendency',             filter: r => r['Status']==='Pending L1 (Technical)' },
+    { label: 'L2 Vini',                 filter: r => r['Status']==='Pending L2 (Technical)' },
+    { label: 'Waiting on Product',      filter: r => r['Status']==='Waiting on Product' },
+    { label: 'Pending at Production',   filter: r => r['Status']==='Pending at Production' },
+    { label: 'Pending at Creative',     filter: r => r['Status']==='Pending at Creative' },
+    { label: 'PS On Hold',              filter: r => r['Status']==='On Hold (Internal)' },
+  ];
+
+  const prios = ['Urgent','High','Medium','Low'];
+  const statusRows = productStatuses.map(s => {
+    const st = tickets.filter(s.filter);
+    const byP = {};
+    prios.forEach(p => byP[p] = st.filter(r => r['Priority']===p).length);
+    return { ...s, total: st.length, byP };
+  });
+
+  // ── Pendency & Breachometer by Priority ──────────────────────────────────────
+  const prioSLA = { Urgent:'≤6h', High:'≤1d', Medium:'≤5d', Low:'≤15d' };
+  const prioColor = { Urgent:'#ef4444', High:'#f59e0b', Medium:'#3b82f6', Low:'#64748b' };
+  const prioRows = prios.map(p => {
+    const pt = tickets.filter(r => r['Priority']===p);
+    const pb = pt.filter(r => getSLAStatus(r)==='red').length;
+    const pr = pt.filter(r => { const s=getSLAStatus(r); return s==='amber'||s==='orange'; }).length;
+    const pct = pt.length ? Math.round(pb/pt.length*100) : 0;
+    const rct = pt.length ? Math.round(pr/pt.length*100) : 0;
+    return { p, total:pt.length, breached:pb, atRisk:pr, breachedPct:pct, atRiskPct:rct };
+  }).filter(r=>r.total>0);
+
+  // ── Top Oldest Tickets (Urgent + High) ───────────────────────────────────────
+  const oldestTickets = [...tickets]
+    .filter(r => r['Priority']==='Urgent' || r['Priority']==='High')
+    .sort((a,b) => (daysOpen(b)??0) - (daysOpen(a)??0))
+    .slice(0, 8);
+
+  // ── Recommended Actions ───────────────────────────────────────────────────────
+  const actions = [];
+  if (breached > 0) actions.push(`🔴 <strong>${breached} tickets breached SLA</strong> — escalate or reassign immediately.`);
+  if (atRisk > 3)   actions.push(`🟡 <strong>${atRisk} tickets are at risk</strong> — respond before SLA breach.`);
+  const oldestUrgent = tickets.filter(r=>r['Priority']==='Urgent'&&(daysOpen(r)??0)>2);
+  if (oldestUrgent.length) actions.push(`⚠️ <strong>${oldestUrgent.length} Urgent tickets</strong> open >2 days — immediate attention needed.`);
+  const productionPile = tickets.filter(r=>r['Status']==='Pending at Production').length;
+  if (productionPile > 5) actions.push(`🏭 <strong>${productionPile} tickets</strong> pending at Production — check for backlog.`);
+  const creativePile = tickets.filter(r=>r['Status']==='Pending at Creative').length;
+  if (creativePile > 3) actions.push(`🎨 <strong>${creativePile} tickets</strong> pending at Creative — review queue.`);
+  if (!actions.length) actions.push(`✅ All metrics looking healthy — keep it up!`);
+
+  // ── Build HTML ────────────────────────────────────────────────────────────────
+  const kpiCards = [
+    { label:'Total Pending', value:total, color },
+    { label:'SLA Breached',  value:breached, color:'#ef4444' },
+    { label:'At Risk',       value:atRisk,   color:'#f59e0b' },
+    { label:'On Track',      value:onTrack,  color:'#10b981' },
+  ].map(k=>`
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:18px 22px;flex:1;min-width:140px;border-top:3px solid ${k.color};">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">${k.label}</div>
+      <div style="font-size:36px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
+    </div>`).join('');
+
+  const prioTableRows = prioRows.map(r=>`
+    <tr>
+      <td style="padding:9px 12px;"><span class="priority-badge prio-${r.p.toLowerCase()}">${r.p}</span></td>
+      <td style="padding:9px 12px;font-size:15px;font-weight:700;color:var(--text);">${r.total}</td>
+      <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#ef4444;">${r.breached}</td>
+      <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#f59e0b;">${r.atRisk}</td>
+      <td style="padding:9px 12px;min-width:160px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <div style="flex:1;height:14px;background:var(--surface2);border-radius:4px;overflow:hidden;display:flex;">
+            ${r.breachedPct>0?`<div style="width:${r.breachedPct}%;background:#ef4444;"></div>`:''}
+            ${r.atRiskPct>0?`<div style="width:${r.atRiskPct}%;background:#f59e0b;"></div>`:''}
+          </div>
+          <span style="font-size:11px;color:${r.breachedPct>30?'#ef4444':'var(--muted)'};">${r.breachedPct}%</span>
+        </div>
+      </td>
+      <td style="padding:9px 12px;font-size:11px;color:var(--muted);">${prioSLA[r.p]}</td>
+    </tr>`).join('');
+
+  const statusTableRows = statusRows.map(s=>`
+    <tr>
+      <td style="padding:9px 12px;font-size:13px;font-weight:500;color:var(--text);">${s.label}</td>
+      ${prios.map(p=>`<td style="padding:9px 12px;text-align:center;font-size:13px;font-weight:600;color:${s.byP[p]>0?(p==='Urgent'?'#ef4444':p==='High'?'#f59e0b':'var(--text)'):'var(--muted)'};">${s.byP[p]||'—'}</td>`).join('')}
+      <td style="padding:9px 12px;text-align:center;font-size:14px;font-weight:700;color:${color};">${s.total}</td>
+    </tr>`).join('');
+
+  const oldestRows = oldestTickets.map(r=>{
+    const d=daysOpen(r)??0;
+    const sla=getSLAStatus(r);
+    const badge=sla==='red'?`<span style="background:#ef444422;color:#ef4444;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🔴 Breached</span>`:
+                sla==='orange'?`<span style="background:#f9731622;color:#f97316;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🟠 At Risk</span>`:
+                sla==='amber'?`<span style="background:#f59e0b22;color:#f59e0b;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🟡 Watch</span>`:'';
+    return `<tr>
+      <td style="padding:9px 12px;"><a class="tid" href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank">#${r['Ticket ID']}</a></td>
+      <td style="padding:9px 12px;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;">${(r['Subject']||'—').replace(/</g,'&lt;')}${badge}</td>
+      <td style="padding:9px 12px;">${prioBadge(r['Priority'])}</td>
+      <td style="padding:9px 12px;">${daysBadge(d)}</td>
+      <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['Status']||'—'}</td>
+      <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['Enterprise Name']||'—'}</td>
+      <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['CSM Name']||r['CSM Name (updated)']||'—'}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="padding:20px 0 0;">
+      <!-- Header -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:20px 24px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div style="width:44px;height:44px;background:${color}22;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:22px;">${icon}</div>
+          <div>
+            <div style="font-size:18px;font-weight:700;color:var(--text);">${product} Overview</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px;">Spyne Support · Live Pendency Report · ${mnName}</div>
+          </div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);">As of ${today}</div>
+      </div>
+
+      <!-- KPI Cards -->
+      <div style="display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap;">${kpiCards}</div>
+
+      <!-- Pendency & Breachometer by Priority -->
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Pendency & Breachometer by Priority</div>
+      <div class="table-wrap" style="margin-bottom:18px;">
+        <table class="ticket-table">
+          <thead><tr>
+            <th>Priority</th><th>Pending</th><th>Breached</th><th>At Risk</th><th style="min-width:160px;">Breachometer</th><th>SLA Target</th>
+          </tr></thead>
+          <tbody>${prioTableRows}</tbody>
+        </table>
+      </div>
+
+      <!-- Status-wise Pendency -->
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Status-wise Pendency</div>
+      <div class="table-wrap" style="margin-bottom:18px;">
+        <table class="ticket-table">
+          <thead><tr>
+            <th>Status</th>
+            <th style="text-align:center;color:#ef4444;">Urgent</th>
+            <th style="text-align:center;color:#f59e0b;">High</th>
+            <th style="text-align:center;color:#3b82f6;">Medium</th>
+            <th style="text-align:center;color:#94a3b8;">Low</th>
+            <th style="text-align:center;color:${color};">Total</th>
+          </tr></thead>
+          <tbody>${statusTableRows}</tbody>
+        </table>
+      </div>
+
+      <!-- Top Oldest Tickets -->
+      ${oldestTickets.length ? `
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Top Oldest Pending Tickets (Urgent + High)</div>
+      <div class="table-wrap" style="margin-bottom:18px;">
+        <table class="ticket-table">
+          <thead><tr>
+            <th>Ticket ID</th><th>Subject</th><th>Priority</th><th>Days Open</th><th>Status</th><th>Enterprise</th><th>CSM</th>
+          </tr></thead>
+          <tbody>${oldestRows}</tbody>
+        </table>
+      </div>` : ''}
+
+      <!-- Recommended Actions -->
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Recommended Actions</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;display:flex;flex-direction:column;gap:10px;">
+        ${actions.map(a=>`<div style="font-size:13px;color:var(--text);line-height:1.5;">${a}</div>`).join('')}
+      </div>
+    </div>`;
 }
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
