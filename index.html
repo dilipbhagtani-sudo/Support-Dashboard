@@ -1936,9 +1936,9 @@ function renderSummaryTab(allTickets) {
           <div style="font-size:11px;color:var(--muted);margin-top:3px;">${pendingCreated.length} still pending</div>
         </div>
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Resolved (in month)</div>
-          <div style="font-size:28px;font-weight:700;color:var(--green);">${resolved.length}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:3px;">${created.length ? Math.round(resolved.length/created.length*100) : 0}% of created</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Resolved</div>
+          <div style="font-size:28px;font-weight:700;color:var(--green);">${createdAndResolved.length}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;">${created.length ? Math.round(createdAndResolved.length/created.length*100) : 0}% of created</div>
         </div>
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Avg Resolution</div>
@@ -1968,11 +1968,13 @@ function renderSummaryTab(allTickets) {
     </div>`;
   }
 
-  // Net flow indicator
-  const thisCreated = ticketsCreatedIn(thisMonth).length;
-  const thisResolved = ticketsResolvedIn(thisMonth).length;
-  const lastCreated = ticketsCreatedIn(lastMonth).length;
-  const lastResolved = ticketsResolvedIn(lastMonth).length;
+  // Net flow — all counts based on created month
+  const thisCreatedList = ticketsCreatedIn(thisMonth);
+  const lastCreatedList = ticketsCreatedIn(lastMonth);
+  const thisCreated  = thisCreatedList.length;
+  const thisResolved = thisCreatedList.filter(r => r['Resolved at']).length;
+  const lastCreated  = lastCreatedList.length;
+  const lastResolved = lastCreatedList.filter(r => r['Resolved at']).length;
   const thisNet = thisCreated - thisResolved;
   const lastNet = lastCreated - lastResolved;
 
@@ -1981,7 +1983,7 @@ function renderSummaryTab(allTickets) {
       <!-- Net flow comparison banner -->
       <div class="summary-banner" style="margin-bottom:18px;">
         <div class="sb-main">
-          <div class="sb-label">This Month Net Ticket Flow (Created − Resolved)</div>
+          <div class="sb-label">This Month Net Ticket Flow (Created − Resolved of Created)</div>
           <div style="display:flex;align-items:baseline;gap:16px;margin-top:4px;">
             <div style="font-size:32px;font-weight:700;color:${thisNet>0?'var(--red)':thisNet<0?'var(--green)':'var(--muted)'};">${thisNet>0?'+':''}${thisNet}</div>
             <div style="font-size:12px;color:var(--muted);line-height:1.8;">
