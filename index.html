@@ -1857,12 +1857,39 @@ function renderSummaryTab(allTickets) {
 
   const months = [lastMonth, thisMonth];
 
+  function slaBar(withinCount, total, label, icon) {
+    if (!total) return `<div style="font-size:11px;color:var(--muted);">${icon} ${label}: —</div>`;
+    const pct = Math.round(withinCount / total * 100);
+    const color = pct >= 80 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
+    return `<div style="margin-bottom:8px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px;">
+        <span style="font-size:11px;color:var(--muted);">${icon} ${label}</span>
+        <span style="font-size:12px;font-weight:700;color:${color};">${pct}% <span style="font-size:10px;font-weight:400;color:var(--muted2);">(${withinCount}/${total})</span></span>
+      </div>
+      <div style="height:6px;background:var(--surface3);border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width .4s;"></div>
+      </div>
+    </div>`;
+  }
+
   function buildMonthCard(ym, isThis) {
     const created = ticketsCreatedIn(ym);
     const resolved = ticketsResolvedIn(ym);
-    const avgHrs = avgResHrs(resolved);
+    // Avg resolution: grouped by CREATED month — tickets created in this month that are resolved
+    const createdAndResolved = created.filter(r => r['Resolved at']);
+    const avgHrs = avgResHrs(createdAndResolved);
     const pendingCreated = created.filter(r => r['is_pending'] !== false);
     const accentColor = isThis ? 'var(--accent)' : 'var(--purple)';
+
+    // SLA metrics — computed from tickets CREATED in this month
+    function slaMetric(field) {
+      const tracked = created.filter(r => (r[field] || '').includes('SLA'));
+      const within  = tracked.filter(r => r[field].includes('Within'));
+      return { within: within.length, total: tracked.length };
+    }
+    const frSLA  = slaMetric('First response status');
+    const nrSLA  = slaMetric('Next response status');
+    const resSLA = slaMetric('Resolution status');
 
     // Priority breakdown for created
     const prioHtml = PRIO_ORDER.map(p => {
@@ -1901,7 +1928,7 @@ function renderSummaryTab(allTickets) {
         <div style="font-size:14px;font-weight:700;color:${accentColor};">${isThis ? '🗓 This Month' : '📅 Last Month'} — ${monthLabel(ym)}</div>
       </div>
 
-      <!-- Created vs Resolved row -->
+      <!-- Created vs Resolved vs Avg Resolution -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Created</div>
@@ -1909,18 +1936,26 @@ function renderSummaryTab(allTickets) {
           <div style="font-size:11px;color:var(--muted);margin-top:3px;">${pendingCreated.length} still pending</div>
         </div>
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
-          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Resolved</div>
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Resolved (in month)</div>
           <div style="font-size:28px;font-weight:700;color:var(--green);">${resolved.length}</div>
           <div style="font-size:11px;color:var(--muted);margin-top:3px;">${created.length ? Math.round(resolved.length/created.length*100) : 0}% of created</div>
         </div>
         <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
           <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Avg Resolution</div>
           <div style="font-size:28px;font-weight:700;color:var(--amber);">${fmtHrs(avgHrs)}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:3px;">${resolved.length} resolved tickets</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;">${createdAndResolved.length} resolved (of created)</div>
         </div>
       </div>
 
-      <!-- Product split -->
+      <!-- SLA Performance -->
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:10px;">SLA Performance (tickets created this month)</div>
+        ${slaBar(frSLA.within, frSLA.total, 'First Response SLA', '⚡')}
+        ${slaBar(nrSLA.within, nrSLA.total, 'Next Response SLA', '↩️')}
+        ${slaBar(resSLA.within, resSLA.total, 'Resolution SLA', '✅')}
+      </div>
+
+      <!-- Product + priority pills -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
         ${prioHtml}
         <span style="font-size:11px;color:#3b82f6;background:#3b82f618;border-radius:10px;padding:1px 8px;">Studio: ${studio}</span>
