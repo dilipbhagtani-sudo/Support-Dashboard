@@ -231,6 +231,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="alltickets">All Tickets <span class="tab-badge" id="badge-alltickets">0</span></div>
     <div class="tab" data-tab="enterprise">Enterprise <span class="tab-badge" id="badge-enterprise">0</span></div>
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
+    <div class="tab" data-tab="summary">📊 Monthly Summary</div>
   </div>
 
   <div id="voc-l2-filter-banner"></div>
@@ -267,6 +268,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="chart-canvas-wrap" style="height:220px;"><canvas id="chart-voc-l1"></canvas></div>
     </div>
     <div id="voc-drill-panel" style="margin-bottom:18px;"></div>
+    <div id="ticket-viewer-panel" style="margin-bottom:18px;display:none;"></div>
 
     <!-- Aging — moved to bottom -->
     <div id="ov-aging-section"></div>
@@ -285,6 +287,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-alltickets"><div id="detail-alltickets"></div></div>
   <div class="tab-content" id="tab-enterprise"><div id="detail-enterprise"></div></div>
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
+  <div class="tab-content" id="tab-summary"><div id="detail-summary"></div></div>
 
 </div>
 
@@ -561,7 +564,8 @@ function loadFromSheets(){  // keep name so refresh-btn onclick still works
     })
     .then(data=>{
       clearTimeout(loadTimer);
-      allData=data;
+      window._allTicketsData=data;
+      allData=data.filter(r=>r['is_pending']!==false); // pending tickets only for main dashboard
       populateFilters();
       document.getElementById('load-screen').classList.add('hidden');
       document.getElementById('dashboard').style.display='block';
@@ -777,6 +781,7 @@ function renderAll(){
   renderAllTicketsTab(base);
   renderEnterpriseTab(base);
   renderCsmTab(base);
+  renderSummaryTab(window._allTicketsData||allData);
 }
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
@@ -1642,10 +1647,12 @@ function toggleL2Drill(key){
     ?top3.map((e,i)=>{
         const pct=total?Math.round(e[1]/total*100):0;
         const barW=Math.max(pct,4);
-        return `<div style="display:flex;align-items:center;gap:8px;padding:4px 12px;">
+        const l2Tickets=data.tickets.filter(r=>(r['VoC L2']||'').trim()===e[0]);
+        const safeL2=e[0].replace(/'/g,"\\'").replace(/"/g,'&quot;');
+        return `<div onclick="showTicketViewerPanel(${JSON.stringify(l2Tickets)}, 'VoC L2: ${safeL2}', '${data.color}')" style="display:flex;align-items:center;gap:8px;padding:4px 12px;cursor:pointer;border-radius:6px;transition:background .15s;" onmouseover="this.style.background='rgba(255,255,255,0.05)'" onmouseout="this.style.background=''">
           <span style="font-size:11px;color:var(--muted2);width:14px;flex-shrink:0;">${i+1}.</span>
           <div style="flex:1;min-width:0;">
-            <div style="font-size:11px;color:var(--text);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${e[0].replace(/"/g,'&quot;')}">${e[0]}</div>
+            <div style="font-size:11px;color:var(--text);margin-bottom:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${e[0].replace(/"/g,'&quot;')}">${e[0]} <span style="font-size:10px;color:var(--accent);">→ view tickets</span></div>
             <div style="height:4px;background:var(--surface3);border-radius:2px;overflow:hidden;">
               <div style="height:100%;width:${barW}%;background:${data.color};border-radius:2px;"></div>
             </div>
@@ -1654,12 +1661,14 @@ function toggleL2Drill(key){
         </div>`;
       }).join('')
     :`<div style="padding:6px 12px;font-size:11px;color:var(--muted);">No L2 data (excluding Others)</div>`;
+  const viewAllBtn=`<div onclick="showTicketViewerPanel(${JSON.stringify(data.tickets)}, 'VoC L1: ${data.l1.replace(/'/g,"\\'")}', '${data.color}')" style="margin:4px 12px 2px;padding:4px 10px;font-size:11px;color:${data.color};border:1px solid ${data.color}44;border-radius:6px;cursor:pointer;text-align:center;transition:background .15s;" onmouseover="this.style.background='${data.color}18'" onmouseout="this.style.background=''">View all ${total} tickets →</div>`;
   drillRow.cells[0].innerHTML=`<div style="background:${data.color}0d;border-left:3px solid ${data.color}66;border-radius:0 6px 6px 0;margin:2px 4px 6px;padding:6px 0 4px;">
     <div style="padding:4px 12px 6px;font-size:10px;font-weight:700;color:${data.color};text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:6px;">
       <span>↳ Top 3 VoC L2</span>
       <span style="font-weight:400;color:var(--muted2);text-transform:none;letter-spacing:0;">for "${data.l1}" (${total} tickets)</span>
     </div>
     ${l2HTML}
+    ${viewAllBtn}
   </div>`;
   drillRow.style.display='';
 }
@@ -1670,6 +1679,215 @@ function setSortAndRender(catId,col){
   const cat=CATEGORIES.find(c=>c.id===catId);
   const base=getFiltered();
   if(cat)renderDetail(cat,base.filter(cat.filter));
+}
+
+// ─── TICKET VIEWER PANEL (VoC drill click-through) ───────────────────────────
+function showTicketViewerPanel(tickets, label, color) {
+  const panel = document.getElementById('ticket-viewer-panel');
+  if (!panel) return;
+  if (!tickets || !tickets.length) {
+    panel.innerHTML = `<div class="chart-card"><div class="chart-title" style="color:${color||'var(--accent)'};">${label}</div><div class="empty-state" style="padding:24px;"><span class="icon">📭</span>No tickets found.</div></div>`;
+    panel.style.display = 'block';
+    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+    return;
+  }
+  const sorted = [...tickets].sort((a,b) => (daysOpen(b)??0) - (daysOpen(a)??0));
+  const rows = sorted.map(r => {
+    const d = daysOpen(r);
+    const ent = (r['Enterprise Name']||'—').replace(/</g,'&lt;');
+    const subj = (r['Subject']||'—').replace(/</g,'&lt;');
+    return `<tr>
+      <td><a class="tid" href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank" rel="noopener">#${r['Ticket ID']}</a></td>
+      <td><span class="subject" title="${subj}">${subj}</span></td>
+      <td style="font-size:12px;max-width:130px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${ent}">${ent}</td>
+      <td style="font-size:12px;">${r['Product (Studio/Vini)']||'—'}</td>
+      <td>${prioBadge(r['Priority'])}</td>
+      <td style="font-size:12px;color:var(--muted);">${r['Status']||'—'}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r['CSM Name']||r['CSM Name (updated)']||'—'}</td>
+      <td>${daysBadge(d)}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r['VoC L1']||'—'}</td>
+      <td style="font-size:12px;color:var(--muted);max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r['VoC L2']||'—'}</td>
+    </tr>`;
+  }).join('');
+  panel.style.display = 'block';
+  panel.innerHTML = `<div class="chart-card" style="border-top:3px solid ${color||'var(--accent)'};padding:14px 16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+      <div class="chart-title" style="color:${color||'var(--accent)'};margin-bottom:0;">📋 ${label} <span style="font-size:12px;font-weight:400;color:var(--muted);">(${tickets.length} tickets)</span></div>
+      <button onclick="document.getElementById('ticket-viewer-panel').style.display='none'" style="background:var(--surface2);border:1px solid var(--border2);color:var(--muted);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;">✕ Close</button>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="ticket-table">
+        <thead><tr>
+          <th>Ticket ID</th><th>Subject</th><th>Enterprise</th><th>Product</th>
+          <th>Priority</th><th>Status</th><th>CSM</th><th>Days Open</th><th>VoC L1</th><th>VoC L2</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+  panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+// ─── MONTHLY SUMMARY TAB ──────────────────────────────────────────────────────
+function renderSummaryTab(allTickets) {
+  const el = document.getElementById('detail-summary');
+  if (!el) return;
+  if (!allTickets || !allTickets.length) {
+    el.innerHTML = `<div class="empty-state"><span class="icon">📊</span><strong>No data yet</strong></div>`;
+    return;
+  }
+
+  const now = new Date();
+  const thisMonth = { y: now.getFullYear(), m: now.getMonth() };
+  const lastMonthDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonth = { y: lastMonthDate.getFullYear(), m: lastMonthDate.getMonth() };
+
+  function monthLabel(ym) {
+    return MONTH_NAMES[ym.m + 1] + ' ' + ym.y;
+  }
+
+  function ticketsCreatedIn(ym) {
+    return allTickets.filter(r => {
+      const ct = getCreatedTime(r); if (!ct) return false;
+      const d = new Date(ct); if (isNaN(d.getTime())) return false;
+      return d.getFullYear() === ym.y && d.getMonth() === ym.m;
+    });
+  }
+
+  function ticketsResolvedIn(ym) {
+    return allTickets.filter(r => {
+      const ra = r['Resolved at']; if (!ra) return false;
+      const d = new Date(ra); if (isNaN(d.getTime())) return false;
+      return d.getFullYear() === ym.y && d.getMonth() === ym.m;
+    });
+  }
+
+  function avgResHrs(tickets) {
+    const hrs = tickets.map(r => parseFloat(r['Resolution time (in hrs)'])).filter(h => !isNaN(h) && h > 0);
+    if (!hrs.length) return null;
+    return (hrs.reduce((s, h) => s + h, 0) / hrs.length);
+  }
+
+  function fmtHrs(h) {
+    if (h === null) return '—';
+    if (h < 24) return h.toFixed(1) + ' hrs';
+    return (h / 24).toFixed(1) + ' days';
+  }
+
+  const months = [lastMonth, thisMonth];
+
+  function buildMonthCard(ym, isThis) {
+    const created = ticketsCreatedIn(ym);
+    const resolved = ticketsResolvedIn(ym);
+    const avgHrs = avgResHrs(resolved);
+    const pendingCreated = created.filter(r => r['is_pending'] !== false);
+    const accentColor = isThis ? 'var(--accent)' : 'var(--purple)';
+
+    // Priority breakdown for created
+    const prioHtml = PRIO_ORDER.map(p => {
+      const n = created.filter(r => r['Priority'] === p).length;
+      if (!n) return '';
+      const colors = {Urgent:'#ef4444',High:'#f59e0b',Medium:'#3b82f6',Low:'#64748b'};
+      return `<span style="font-size:11px;font-weight:600;color:${colors[p]};background:${colors[p]}18;border-radius:10px;padding:1px 8px;">${p}: ${n}</span>`;
+    }).filter(Boolean).join('');
+
+    // Product split for created
+    const studio = created.filter(r => r['Product (Studio/Vini)'] === 'Studio').length;
+    const vini = created.filter(r => r['Product (Studio/Vini)'] === 'Vini').length;
+
+    // VoC L1 top 5 for created
+    const vocMap = {};
+    created.forEach(r => {
+      const v = (r['VoC L1'] || '').trim();
+      if (v && !['', 'unspecified', 'n/a', 'none'].includes(v.toLowerCase())) vocMap[v] = (vocMap[v] || 0) + 1;
+    });
+    const top5voc = Object.entries(vocMap).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const maxVoc = top5voc.length ? top5voc[0][1] : 1;
+    const vocRows = top5voc.map((e, i) => {
+      const barW = Math.max(Math.round(e[1] / maxVoc * 100), 4);
+      return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:5px;">
+        <span style="font-size:11px;color:var(--muted2);width:14px;flex-shrink:0;">${i+1}.</span>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:11px;color:var(--text);margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${e[0]}</div>
+          <div style="height:4px;background:var(--surface3);border-radius:2px;"><div style="height:100%;width:${barW}%;background:${accentColor};border-radius:2px;opacity:.7;"></div></div>
+        </div>
+        <span style="font-size:12px;font-weight:700;color:${accentColor};width:24px;text-align:right;flex-shrink:0;">${e[1]}</span>
+      </div>`;
+    }).join('') || `<div style="font-size:12px;color:var(--muted);">No VoC data</div>`;
+
+    return `<div class="chart-card" style="border-top:3px solid ${accentColor};">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div style="font-size:14px;font-weight:700;color:${accentColor};">${isThis ? '🗓 This Month' : '📅 Last Month'} — ${monthLabel(ym)}</div>
+      </div>
+
+      <!-- Created vs Resolved row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Created</div>
+          <div style="font-size:28px;font-weight:700;color:${accentColor};">${created.length}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;">${pendingCreated.length} still pending</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Resolved</div>
+          <div style="font-size:28px;font-weight:700;color:var(--green);">${resolved.length}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;">${created.length ? Math.round(resolved.length/created.length*100) : 0}% of created</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+          <div style="font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;">Avg Resolution</div>
+          <div style="font-size:28px;font-weight:700;color:var(--amber);">${fmtHrs(avgHrs)}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;">${resolved.length} resolved tickets</div>
+        </div>
+      </div>
+
+      <!-- Product split -->
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
+        ${prioHtml}
+        <span style="font-size:11px;color:#3b82f6;background:#3b82f618;border-radius:10px;padding:1px 8px;">Studio: ${studio}</span>
+        <span style="font-size:11px;color:#10b981;background:#10b98118;border-radius:10px;padding:1px 8px;">Vini: ${vini}</span>
+      </div>
+
+      <!-- Top VoC L1 for created tickets -->
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;">Top VoC L1 (Created)</div>
+      ${vocRows}
+    </div>`;
+  }
+
+  // Net flow indicator
+  const thisCreated = ticketsCreatedIn(thisMonth).length;
+  const thisResolved = ticketsResolvedIn(thisMonth).length;
+  const lastCreated = ticketsCreatedIn(lastMonth).length;
+  const lastResolved = ticketsResolvedIn(lastMonth).length;
+  const thisNet = thisCreated - thisResolved;
+  const lastNet = lastCreated - lastResolved;
+
+  el.innerHTML = `
+    <div style="padding:20px 0;">
+      <!-- Net flow comparison banner -->
+      <div class="summary-banner" style="margin-bottom:18px;">
+        <div class="sb-main">
+          <div class="sb-label">This Month Net Ticket Flow (Created − Resolved)</div>
+          <div style="display:flex;align-items:baseline;gap:16px;margin-top:4px;">
+            <div style="font-size:32px;font-weight:700;color:${thisNet>0?'var(--red)':thisNet<0?'var(--green)':'var(--muted)'};">${thisNet>0?'+':''}${thisNet}</div>
+            <div style="font-size:12px;color:var(--muted);line-height:1.8;">
+              <div>Last month: <strong style="color:${lastNet>0?'var(--red)':lastNet<0?'var(--green)':'var(--muted)'};">${lastNet>0?'+':''}${lastNet}</strong></div>
+              <div>Trend: ${thisNet<lastNet?'<span style="color:var(--green);">▼ Improving</span>':thisNet>lastNet?'<span style="color:var(--red);">▲ Worsening</span>':'<span style="color:var(--amber);">— Flat</span>'}</div>
+            </div>
+          </div>
+        </div>
+        <div class="sb-divider"></div>
+        <div class="sb-breakdown">
+          <div class="sb-pill" style="border-color:var(--accent)33;color:var(--accent);">This Month Created: <strong>${thisCreated}</strong></div>
+          <div class="sb-pill" style="border-color:#10b98133;color:#10b981;">This Month Resolved: <strong>${thisResolved}</strong></div>
+          <div class="sb-pill" style="border-color:var(--purple)33;color:var(--purple);">Last Month Created: <strong>${lastCreated}</strong></div>
+          <div class="sb-pill" style="border-color:#06b6d433;color:#06b6d4;">Last Month Resolved: <strong>${lastResolved}</strong></div>
+        </div>
+      </div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        ${buildMonthCard(lastMonth, false)}
+        ${buildMonthCard(thisMonth, true)}
+      </div>
+    </div>`;
 }
 
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
