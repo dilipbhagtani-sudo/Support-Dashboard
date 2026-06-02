@@ -1857,6 +1857,61 @@ function renderSummaryTab(allTickets) {
 
   const months = [lastMonth, thisMonth];
 
+  // Read-only SLA Breachometer (HTML string, no click handlers) for monthly summary
+  function buildSLABreachometerHTML(tickets) {
+    const SLA_COLORS = {green:'#10b981', amber:'#f59e0b', orange:'#f97316', red:'#ef4444'};
+    const SLA_LABELS = {green:'Within SLA', amber:'Slightly Over', orange:'Moderately Over', red:'SLA Breached'};
+    const SLA_ORDER  = ['green','amber','orange','red'];
+    const prioSLA = {};
+    PRIO_ORDER.forEach(p => { prioSLA[p] = {green:0, amber:0, orange:0, red:0}; });
+    const totals = {green:0, amber:0, orange:0, red:0};
+    tickets.forEach(r => {
+      const s = getSLAStatus(r); if (!s) return;
+      const p = normalizePriority(r); if (!p) return;
+      totals[s]++;
+      if (prioSLA[p]) prioSLA[p][s]++;
+    });
+    const prioTotals = PRIO_ORDER.map(p => SLA_ORDER.reduce((s,k) => s + prioSLA[p][k], 0));
+    const maxTotal = Math.max(...prioTotals, 1);
+    // Summary pills
+    const pillsHTML = SLA_ORDER.map(s =>
+      `<span style="font-size:11px;font-weight:600;color:${SLA_COLORS[s]};background:${SLA_COLORS[s]}18;border:1px solid ${SLA_COLORS[s]}44;border-radius:20px;padding:2px 10px;">${SLA_LABELS[s]}: ${totals[s]}</span>`
+    ).join('');
+    // Priority rows
+    const rowsHTML = PRIO_ORDER.map((p, idx) => {
+      const pTot = prioTotals[idx];
+      const barW = pTot ? Math.max(Math.round(pTot / maxTotal * 100), 2) : 0;
+      let segHTML = '';
+      if (pTot > 0) {
+        SLA_ORDER.forEach(s => {
+          const n = prioSLA[p][s]; if (!n) return;
+          const sw = Math.max(Math.round(n / pTot * 100), 2);
+          segHTML += `<div style="width:${sw}%;background:${SLA_COLORS[s]}cc;height:100%;display:flex;align-items:center;justify-content:center;" title="${SLA_LABELS[s]}: ${n}">
+            <span style="font-size:10px;font-weight:700;color:#fff;">${n}</span></div>`;
+        });
+      }
+      return `<div class="aging-row">
+        <span class="aging-label" style="width:64px;font-size:11px;">${p}</span>
+        <div class="aging-bar-track">
+          <div style="width:${barW}%;height:100%;display:flex;overflow:hidden;border-radius:4px;">${segHTML}</div>
+        </div>
+        <span class="aging-count-right">${pTot}</span>
+      </div>`;
+    }).join('');
+    const legendHTML = SLA_ORDER.map(s =>
+      `<span style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);">
+        <span style="width:8px;height:8px;border-radius:2px;background:${SLA_COLORS[s]};display:inline-block;"></span>${SLA_LABELS[s]}
+      </span>`).join('');
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;margin-bottom:8px;">
+        <span style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">SLA Breachometer</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">${pillsHTML}</div>
+      </div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px;">${legendHTML}</div>
+      <div class="aging-rows">${rowsHTML}</div>
+    </div>`;
+  }
+
   function slaBar(withinCount, total, label, icon) {
     if (!total) return `<div style="font-size:11px;color:var(--muted);">${icon} ${label}: —</div>`;
     const pct = Math.round(withinCount / total * 100);
@@ -1954,6 +2009,9 @@ function renderSummaryTab(allTickets) {
         ${slaBar(nrSLA.within, nrSLA.total, 'Next Response SLA', '↩️')}
         ${slaBar(resSLA.within, resSLA.total, 'Resolution SLA', '✅')}
       </div>
+
+      <!-- SLA Breachometer -->
+      ${buildSLABreachometerHTML(created)}
 
       <!-- Product + priority pills -->
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
