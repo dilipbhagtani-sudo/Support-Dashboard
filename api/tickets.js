@@ -1,9 +1,9 @@
 /**
  * Vercel Serverless Function — /api/tickets
  *
- * Fetches all pending tickets from Freshdesk and returns them
- * in the exact same shape the dashboard expects (same column names
- * as the old Google Sheets CSV).
+ * Fetches all tickets (pending + resolved/closed) from Freshdesk and returns
+ * them with an `is_pending` flag so the dashboard can use them for both the
+ * pendency view and the Monthly Summary tab.
  *
  * Required Vercel env vars:
  *   FRESHDESK_DOMAIN   e.g. "spyne"
@@ -29,7 +29,7 @@ const STATUS_LABELS = {
   19: 'Pending at Production',
 };
 
-// Pending status codes to keep (filter applied after fetching)
+// Pending status codes (used for is_pending flag)
 const PENDING_STATUSES = new Set([2, 7, 15, 16, 17, 18, 19]);
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
@@ -70,10 +70,9 @@ async function fetchEnterpriseLookup() {
     const headers = parseCSVRow(lines[0]).map(h => h.toLowerCase());
     const idIdx  = headers.findIndex(h => h.includes('enterprise id') || h === 'id' || h === 'enterprise_id');
     const segIdx = headers.findIndex(h => h.includes('customer segment') || h.includes('segment'));
-    // CSM: try 'csm name', 'csm', 'customer success manager', 'account manager'
-    const csmIdx = headers.findIndex(h =>
-      h.includes('csm name') || h === 'csm' || h.includes('customer success') || h.includes('account manager')
-    );
+
+    // CSM Name: always use column M (index 12, 0-based) as specified
+    const CSM_COL_INDEX = 12; // Column M
 
     if (idIdx === -1) return {};
 
@@ -85,7 +84,7 @@ async function fetchEnterpriseLookup() {
       if (!id) continue;
       lookup[id] = {
         segment: segIdx !== -1 ? (cols[segIdx] || '').trim() : '',
-        csm:     csmIdx !== -1 ? (cols[csmIdx] || '').trim() : '',
+        csm:     (cols[CSM_COL_INDEX] || '').trim(),
       };
     }
     return lookup;
@@ -124,7 +123,7 @@ async function fetchPage(page) {
   }
 }
 
-// ─── Fetch ALL tickets and filter to pending statuses ────────────────────────
+// ─── Fetch ALL tickets (pending + resolved/closed) ───────────────────────────
 async function fetchAllTickets() {
   const all = [];
   let page = 1;
@@ -132,7 +131,8 @@ async function fetchAllTickets() {
     const tickets = await fetchPage(page);
     if (tickets === null) break; // rate limited
     if (!Array.isArray(tickets) || tickets.length === 0) break;
-    tickets.forEach(t => { if (PENDING_STATUSES.has(t.status)) all.push(t); });
+    // Keep all statuses — pending AND resolved/closed — so the Monthly Summary tab works
+    tickets.forEach(t => all.push(t));
     if (tickets.length < 100) break;
     page++;
   }
@@ -191,10 +191,13 @@ function mapTicket(t, lookup = {}) {
     'Jira':                     cf.cf_jira_ticket || '',
     'Tags':                     tags,
     'Created time':             created,
+    'Resolved at':              stats.resolved_at || '',
     'Month':                    month,
     'First response status':    slaStatus(stats.first_responded_at, t.fr_due_by),
     'Resolution status':        slaStatus(stats.resolved_at, t.due_by),
     'Resolution time (in hrs)': resHrs,
+    // Flag so the frontend can split pending vs. resolved tickets
+    'is_pending':               PENDING_STATUSES.has(t.status),
   };
 }
 
