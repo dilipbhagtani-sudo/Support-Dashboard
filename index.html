@@ -859,19 +859,37 @@ function renderProductOverview(product, containerId, tickets) {
       prios.forEach(p => byP[p] = st.filter(r => r['Priority']===p).length);
       return { ...s, total:st.length, byP };
     });
-    const oldestTix = [...tix]
-      .filter(r => r['Priority']==='Urgent' || r['Priority']==='High')
-      .sort((a,b) => (daysOpen(b)??0) - (daysOpen(a)??0))
-      .slice(0, 8);
-
     const statusTableRows = statusRows.map(s=>`
       <tr>
         <td style="padding:9px 12px;font-size:13px;font-weight:500;color:var(--text);">${s.label}</td>
         ${prios.map(p=>`<td style="padding:9px 12px;text-align:center;font-size:13px;font-weight:600;color:${s.byP[p]>0?(p==='Urgent'?'#ef4444':p==='High'?'#f59e0b':'var(--text)'):'var(--muted)'};">${s.byP[p]||'—'}</td>`).join('')}
         <td style="padding:9px 12px;text-align:center;font-size:14px;font-weight:700;color:${typeColor};">${s.total}</td>
       </tr>`).join('');
+    return `
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:18px 0 10px;">Status-wise Pendency</div>
+      <div class="table-wrap" style="margin-bottom:18px;">
+        <table class="ticket-table">
+          <thead><tr>
+            <th>Status</th>
+            <th style="text-align:center;color:#ef4444;">Urgent</th>
+            <th style="text-align:center;color:#f59e0b;">High</th>
+            <th style="text-align:center;color:#3b82f6;">Medium</th>
+            <th style="text-align:center;color:#94a3b8;">Low</th>
+            <th style="text-align:center;color:${typeColor};">Total</th>
+          </tr></thead>
+          <tbody>${statusTableRows}</tbody>
+        </table>
+      </div>`;
+  }
 
-    const oldestRows = oldestTix.map(r=>{
+  // ── Helper: build oldest tickets HTML for a given ticket set ─────────────────
+  function buildOldestHTML(tix) {
+    const oldestTix = [...tix]
+      .filter(r => r['Priority']==='Urgent' || r['Priority']==='High')
+      .sort((a,b) => (daysOpen(b)??0) - (daysOpen(a)??0))
+      .slice(0, 8);
+    if (!oldestTix.length) return '';
+    const rows = oldestTix.map(r=>{
       const d=daysOpen(r)??0;
       const sla=getSLAStatus(r);
       const badge=sla==='red'?`<span style="background:#fee2e2;color:#ef4444;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🔴 Breached</span>`:
@@ -887,30 +905,14 @@ function renderProductOverview(product, containerId, tickets) {
         <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['CSM Name']||r['CSM Name (updated)']||'—'}</td>
       </tr>`;
     }).join('');
-
     return `
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:18px 0 10px;">Status-wise Pendency</div>
-      <div class="table-wrap" style="margin-bottom:18px;">
-        <table class="ticket-table">
-          <thead><tr>
-            <th>Status</th>
-            <th style="text-align:center;color:#ef4444;">Urgent</th>
-            <th style="text-align:center;color:#f59e0b;">High</th>
-            <th style="text-align:center;color:#3b82f6;">Medium</th>
-            <th style="text-align:center;color:#94a3b8;">Low</th>
-            <th style="text-align:center;color:${typeColor};">Total</th>
-          </tr></thead>
-          <tbody>${statusTableRows}</tbody>
-        </table>
-      </div>
-      ${oldestTix.length ? `
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Top Oldest Pending Tickets (Urgent + High)</div>
       <div class="table-wrap" style="margin-bottom:18px;">
         <table class="ticket-table">
           <thead><tr><th>Ticket ID</th><th>Subject</th><th>Priority</th><th>Days Open</th><th>Status</th><th>Enterprise</th><th>CSM</th></tr></thead>
-          <tbody>${oldestRows}</tbody>
+          <tbody>${rows}</tbody>
         </table>
-      </div>` : ''}`;
+      </div>`;
   }
 
   // ── KPI cards HTML (clickable — filter whole dashboard) ──────────────────────
@@ -1004,16 +1006,24 @@ function renderProductOverview(product, containerId, tickets) {
     panelsContainer.appendChild(panel);
   });
 
-  // ── VoC L1 drill-down table (Bug / Task / Enhancement) ───────────────────────
-  const vocSection = document.createElement('div');
-  vocSection.style.cssText = 'margin-top:24px;';
+  // ── After sub-tab panels: VoC L1 table → Oldest Tickets ─────────────────────
+  const afterPanels = document.createElement('div');
+
+  // 1. Top VoC L1 by Type
   const vocLabel = document.createElement('div');
-  vocLabel.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;';
+  vocLabel.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;margin-top:24px;';
   vocLabel.textContent = 'Top VoC L1 by Type';
-  vocSection.appendChild(vocLabel);
+  afterPanels.appendChild(vocLabel);
   const vocTable = buildTypeVoCTables(tickets, null);
-  if (vocTable) vocSection.appendChild(vocTable);
-  el.querySelector(`#prodsubtab-panels-${pid}`).after(vocSection);
+  if (vocTable) afterPanels.appendChild(vocTable);
+
+  // 2. Top Oldest Pending Tickets
+  const oldestDiv = document.createElement('div');
+  oldestDiv.style.marginTop = '24px';
+  oldestDiv.innerHTML = buildOldestHTML(tickets);
+  if (oldestDiv.innerHTML.trim()) afterPanels.appendChild(oldestDiv);
+
+  el.querySelector(`#prodsubtab-panels-${pid}`).after(afterPanels);
 }
 
 function filterFromProdOverview(product, slaFilter) {
