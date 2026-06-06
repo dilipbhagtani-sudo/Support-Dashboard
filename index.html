@@ -932,15 +932,7 @@ function renderProductOverview(product, containerId, tickets) {
     </div>`).join('');
 
   // ── Sub-tab buttons ───────────────────────────────────────────────────────────
-  const subTabBtns = SUBTYPES.map((t,i) => {
-    const count = typeCol ? tickets.filter(r => t.match((r[typeCol]||'').trim().toLowerCase())).length : 0;
-    return `<button
-      class="prod-subtab${i===0?' active':''}"
-      onclick="switchProdSubtab('${pid}','${t.key}',this)"
-      style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:1px solid ${i===0?t.color:'var(--border)'};background:${i===0?t.color+'18':'var(--surface2)'};color:${i===0?t.color:'var(--muted)'};font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font);">
-      ${t.icon} ${t.label} <span style="background:${i===0?t.color+'28':'var(--border)'};border-radius:10px;padding:1px 7px;font-size:11px;">${count}</span>
-    </button>`;
-  }).join('');
+  // Sub-tab buttons removed — panels are now stacked
 
   // ── Recommended Actions (overall) ────────────────────────────────────────────
   const actions = [];
@@ -971,10 +963,7 @@ function renderProductOverview(product, containerId, tickets) {
       <!-- KPI Cards -->
       <div style="display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap;">${kpiCards}</div>
 
-      <!-- Type Sub-tabs -->
-      <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;">${subTabBtns}</div>
-
-      <!-- Sub-tab Content Panels (populated below via DOM) -->
+      <!-- Type Panels (Bug / Task / Enhancement stacked) -->
       <div id="prodsubtab-panels-${pid}"></div>
 
       <!-- Recommended Actions -->
@@ -990,10 +979,19 @@ function renderProductOverview(product, containerId, tickets) {
     const tix = typeCol ? tickets.filter(r => t.match((r[typeCol]||'').trim().toLowerCase())) : [];
     const panel = document.createElement('div');
     panel.id = `prodsubtab-${pid}-${t.key}`;
-    panel.style.display = i === 0 ? 'block' : 'none';
+    panel.style.display = 'block';
+
+    // Section heading
+    const heading = document.createElement('div');
+    heading.style.cssText = `display:flex;align-items:center;gap:8px;margin:${i===0?'0':'28px'} 0 14px;padding-bottom:10px;border-bottom:2px solid ${t.color}33;`;
+    heading.innerHTML = `<span style="font-size:15px;font-weight:700;color:${t.color};">${t.icon} ${t.label}</span><span style="background:${t.color}18;color:${t.color};border:1px solid ${t.color}33;border-radius:12px;padding:1px 10px;font-size:12px;font-weight:600;">${tix.length} tickets</span>`;
+    panel.appendChild(heading);
 
     if (!tix.length) {
-      panel.innerHTML = `<div class="empty-state"><span class="icon">📭</span>No ${t.label} tickets found.</div>`;
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.innerHTML = `<span class="icon">📭</span>No ${t.label} tickets found.`;
+      panel.appendChild(empty);
     } else {
       // SLA Breachometer (visual — same as Overview tab)
       panel.appendChild(buildSLASection(tix, `SLA Breachometer — ${t.label} Tickets`));
