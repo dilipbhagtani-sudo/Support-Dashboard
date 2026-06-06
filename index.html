@@ -805,62 +805,179 @@ function renderProductOverview(product, containerId, tickets) {
   const color  = product === 'Studio' ? '#3b82f6' : '#10b981';
   const icon   = product === 'Studio' ? '🎬' : '🚗';
   const today  = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
-  const nowYM  = `${new Date().getFullYear()}-${String(new Date().getMonth()+1).padStart(2,'0')}`;
   const mnName = MONTH_NAMES[new Date().getMonth()+1] + ' ' + new Date().getFullYear();
+  const pid    = product.toLowerCase();
 
-  // ── KPI ──────────────────────────────────────────────────────────────────────
-  const total   = tickets.length;
+  // ── Detect ticket type column ─────────────────────────────────────────────────
+  const TYPE_COLS = ['Type','type','Ticket Type','ticket_type'];
+  let typeCol = null;
+  if (tickets.length) {
+    typeCol = TYPE_COLS.find(c => tickets[0][c] !== undefined) || null;
+    if (!typeCol && tickets[0]['Category/Type'] !== undefined) typeCol = 'Category/Type';
+  }
+
+  // ── Sub-types ─────────────────────────────────────────────────────────────────
+  const SUBTYPES = [
+    { key:'bug',         label:'Bug',         icon:'🐛', color:'#ef4444', match: v => v.includes('bug') },
+    { key:'task',        label:'Task',        icon:'📋', color:'#3b82f6', match: v => v.includes('task') },
+    { key:'enhancement', label:'Enhancement', icon:'✨', color:'#8b5cf6', match: v => v.includes('enhancement') || v.includes('feature') || v.includes('improvement') },
+  ];
+
+  // ── KPI (overall) ─────────────────────────────────────────────────────────────
+  const total    = tickets.length;
   const breached = tickets.filter(r => getSLAStatus(r) === 'red').length;
   const atRisk   = tickets.filter(r => { const s=getSLAStatus(r); return s==='amber'||s==='orange'; }).length;
   const onTrack  = tickets.filter(r => getSLAStatus(r) === 'green').length;
 
-  // ── Status-wise pendency ──────────────────────────────────────────────────────
-  // Define which statuses are relevant for this product
   const productStatuses = product === 'Studio' ? [
-    { label: 'PS Open',                 filter: r => r['Status']==='Open' },
-    { label: 'L1 Pendency',             filter: r => r['Status']==='Pending L1 (Technical)' },
-    { label: 'L2 Studio',               filter: r => r['Status']==='Pending L2 (Technical)' },
-    { label: 'Waiting on Product',      filter: r => r['Status']==='Waiting on Product' },
-    { label: 'Pending at Production',   filter: r => r['Status']==='Pending at Production' },
-    { label: 'Pending at Creative',     filter: r => r['Status']==='Pending at Creative' },
-    { label: 'PS On Hold',              filter: r => r['Status']==='On Hold (Internal)' },
+    { label:'PS Open',               filter: r => r['Status']==='Open' },
+    { label:'L1 Pendency',           filter: r => r['Status']==='Pending L1 (Technical)' },
+    { label:'L2 Studio',             filter: r => r['Status']==='Pending L2 (Technical)' },
+    { label:'Waiting on Product',    filter: r => r['Status']==='Waiting on Product' },
+    { label:'Pending at Production', filter: r => r['Status']==='Pending at Production' },
+    { label:'Pending at Creative',   filter: r => r['Status']==='Pending at Creative' },
+    { label:'PS On Hold',            filter: r => r['Status']==='On Hold (Internal)' },
   ] : [
-    { label: 'PS Open',                 filter: r => r['Status']==='Open' },
-    { label: 'L1 Pendency',             filter: r => r['Status']==='Pending L1 (Technical)' },
-    { label: 'L2 Vini',                 filter: r => r['Status']==='Pending L2 (Technical)' },
-    { label: 'Waiting on Product',      filter: r => r['Status']==='Waiting on Product' },
-    { label: 'Pending at Production',   filter: r => r['Status']==='Pending at Production' },
-    { label: 'Pending at Creative',     filter: r => r['Status']==='Pending at Creative' },
-    { label: 'PS On Hold',              filter: r => r['Status']==='On Hold (Internal)' },
+    { label:'PS Open',               filter: r => r['Status']==='Open' },
+    { label:'L1 Pendency',           filter: r => r['Status']==='Pending L1 (Technical)' },
+    { label:'L2 Vini',               filter: r => r['Status']==='Pending L2 (Technical)' },
+    { label:'Waiting on Product',    filter: r => r['Status']==='Waiting on Product' },
+    { label:'Pending at Production', filter: r => r['Status']==='Pending at Production' },
+    { label:'Pending at Creative',   filter: r => r['Status']==='Pending at Creative' },
+    { label:'PS On Hold',            filter: r => r['Status']==='On Hold (Internal)' },
   ];
 
-  const prios = ['Urgent','High','Medium','Low'];
-  const statusRows = productStatuses.map(s => {
-    const st = tickets.filter(s.filter);
-    const byP = {};
-    prios.forEach(p => byP[p] = st.filter(r => r['Priority']===p).length);
-    return { ...s, total: st.length, byP };
-  });
-
-  // ── Pendency & Breachometer by Priority ──────────────────────────────────────
+  const prios   = ['Urgent','High','Medium','Low'];
   const prioSLA = { Urgent:'≤6h', High:'≤1d', Medium:'≤5d', Low:'≤15d' };
-  const prioColor = { Urgent:'#ef4444', High:'#f59e0b', Medium:'#3b82f6', Low:'#64748b' };
-  const prioRows = prios.map(p => {
-    const pt = tickets.filter(r => r['Priority']===p);
-    const pb = pt.filter(r => getSLAStatus(r)==='red').length;
-    const pr = pt.filter(r => { const s=getSLAStatus(r); return s==='amber'||s==='orange'; }).length;
-    const pct = pt.length ? Math.round(pb/pt.length*100) : 0;
-    const rct = pt.length ? Math.round(pr/pt.length*100) : 0;
-    return { p, total:pt.length, breached:pb, atRisk:pr, breachedPct:pct, atRiskPct:rct };
-  }).filter(r=>r.total>0);
 
-  // ── Top Oldest Tickets (Urgent + High) ───────────────────────────────────────
-  const oldestTickets = [...tickets]
-    .filter(r => r['Priority']==='Urgent' || r['Priority']==='High')
-    .sort((a,b) => (daysOpen(b)??0) - (daysOpen(a)??0))
-    .slice(0, 8);
+  // ── Helper: build tables HTML for a given ticket set ─────────────────────────
+  function buildTypeSection(tix, typeColor) {
+    const prioRows = prios.map(p => {
+      const pt  = tix.filter(r => r['Priority']===p);
+      const pb  = pt.filter(r => getSLAStatus(r)==='red').length;
+      const pr  = pt.filter(r => { const s=getSLAStatus(r); return s==='amber'||s==='orange'; }).length;
+      const pct = pt.length ? Math.round(pb/pt.length*100) : 0;
+      const rct = pt.length ? Math.round(pr/pt.length*100) : 0;
+      return { p, total:pt.length, breached:pb, atRisk:pr, breachedPct:pct, atRiskPct:rct };
+    }).filter(r=>r.total>0);
 
-  // ── Recommended Actions ───────────────────────────────────────────────────────
+    const statusRows = productStatuses.map(s => {
+      const st = tix.filter(s.filter);
+      const byP = {};
+      prios.forEach(p => byP[p] = st.filter(r => r['Priority']===p).length);
+      return { ...s, total:st.length, byP };
+    });
+
+    const oldestTix = [...tix]
+      .filter(r => r['Priority']==='Urgent' || r['Priority']==='High')
+      .sort((a,b) => (daysOpen(b)??0) - (daysOpen(a)??0))
+      .slice(0, 8);
+
+    if (!tix.length) return `<div class="empty-state"><span class="icon">📭</span>No tickets of this type.</div>`;
+
+    const prioTableRows = prioRows.map(r=>`
+      <tr>
+        <td style="padding:9px 12px;"><span class="priority-badge prio-${r.p.toLowerCase()}">${r.p}</span></td>
+        <td style="padding:9px 12px;font-size:15px;font-weight:700;color:var(--text);">${r.total}</td>
+        <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#ef4444;">${r.breached}</td>
+        <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#f59e0b;">${r.atRisk}</td>
+        <td style="padding:9px 12px;min-width:160px;">
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div style="flex:1;height:14px;background:var(--surface2);border-radius:4px;overflow:hidden;display:flex;">
+              ${r.breachedPct>0?`<div style="width:${r.breachedPct}%;background:#ef4444;"></div>`:''}
+              ${r.atRiskPct>0?`<div style="width:${r.atRiskPct}%;background:#f59e0b;"></div>`:''}
+            </div>
+            <span style="font-size:11px;color:${r.breachedPct>30?'#ef4444':'var(--muted)'};">${r.breachedPct}%</span>
+          </div>
+        </td>
+        <td style="padding:9px 12px;font-size:11px;color:var(--muted);">${prioSLA[r.p]}</td>
+      </tr>`).join('');
+
+    const statusTableRows = statusRows.map(s=>`
+      <tr>
+        <td style="padding:9px 12px;font-size:13px;font-weight:500;color:var(--text);">${s.label}</td>
+        ${prios.map(p=>`<td style="padding:9px 12px;text-align:center;font-size:13px;font-weight:600;color:${s.byP[p]>0?(p==='Urgent'?'#ef4444':p==='High'?'#f59e0b':'var(--text)'):'var(--muted)'};">${s.byP[p]||'—'}</td>`).join('')}
+        <td style="padding:9px 12px;text-align:center;font-size:14px;font-weight:700;color:${typeColor};">${s.total}</td>
+      </tr>`).join('');
+
+    const oldestRows = oldestTix.map(r=>{
+      const d=daysOpen(r)??0;
+      const sla=getSLAStatus(r);
+      const badge=sla==='red'?`<span style="background:#fee2e2;color:#ef4444;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🔴 Breached</span>`:
+                  sla==='orange'?`<span style="background:#ffedd5;color:#f97316;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🟠 At Risk</span>`:
+                  sla==='amber'?`<span style="background:#fef3c7;color:#f59e0b;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🟡 Watch</span>`:'';
+      return `<tr>
+        <td style="padding:9px 12px;"><a class="tid" href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank">#${r['Ticket ID']}</a></td>
+        <td style="padding:9px 12px;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;">${(r['Subject']||'—').replace(/</g,'&lt;')}${badge}</td>
+        <td style="padding:9px 12px;">${prioBadge(r['Priority'])}</td>
+        <td style="padding:9px 12px;">${daysBadge(d)}</td>
+        <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['Status']||'—'}</td>
+        <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['Enterprise Name']||'—'}</td>
+        <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['CSM Name']||r['CSM Name (updated)']||'—'}</td>
+      </tr>`;
+    }).join('');
+
+    return `
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Pendency &amp; Breachometer by Priority</div>
+      <div class="table-wrap" style="margin-bottom:18px;">
+        <table class="ticket-table">
+          <thead><tr><th>Priority</th><th>Pending</th><th>Breached</th><th>At Risk</th><th style="min-width:160px;">Breachometer</th><th>SLA Target</th></tr></thead>
+          <tbody>${prioTableRows||'<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--muted);">No data</td></tr>'}</tbody>
+        </table>
+      </div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Status-wise Pendency</div>
+      <div class="table-wrap" style="margin-bottom:18px;">
+        <table class="ticket-table">
+          <thead><tr>
+            <th>Status</th>
+            <th style="text-align:center;color:#ef4444;">Urgent</th>
+            <th style="text-align:center;color:#f59e0b;">High</th>
+            <th style="text-align:center;color:#3b82f6;">Medium</th>
+            <th style="text-align:center;color:#94a3b8;">Low</th>
+            <th style="text-align:center;color:${typeColor};">Total</th>
+          </tr></thead>
+          <tbody>${statusTableRows}</tbody>
+        </table>
+      </div>
+      ${oldestTix.length ? `
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Top Oldest Pending Tickets (Urgent + High)</div>
+      <div class="table-wrap" style="margin-bottom:18px;">
+        <table class="ticket-table">
+          <thead><tr><th>Ticket ID</th><th>Subject</th><th>Priority</th><th>Days Open</th><th>Status</th><th>Enterprise</th><th>CSM</th></tr></thead>
+          <tbody>${oldestRows}</tbody>
+        </table>
+      </div>` : ''}`;
+  }
+
+  // ── KPI cards HTML ────────────────────────────────────────────────────────────
+  const kpiCards = [
+    { label:'Total Pending', value:total,    color },
+    { label:'SLA Breached',  value:breached, color:'#ef4444' },
+    { label:'At Risk',       value:atRisk,   color:'#f59e0b' },
+    { label:'On Track',      value:onTrack,  color:'#10b981' },
+  ].map(k=>`
+    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:18px 22px;flex:1;min-width:140px;border-top:3px solid ${k.color};">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">${k.label}</div>
+      <div style="font-size:36px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
+    </div>`).join('');
+
+  // ── Sub-tab buttons + content ─────────────────────────────────────────────────
+  const subTabBtns = SUBTYPES.map((t,i) => {
+    const count = typeCol ? tickets.filter(r => t.match((r[typeCol]||'').trim().toLowerCase())).length : 0;
+    return `<button
+      class="prod-subtab${i===0?' active':''}"
+      onclick="switchProdSubtab('${pid}','${t.key}',this)"
+      style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:1px solid ${i===0?t.color:'var(--border)'};background:${i===0?t.color+'18':'var(--surface2)'};color:${i===0?t.color:'var(--muted)'};font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font);">
+      ${t.icon} ${t.label} <span style="background:${i===0?t.color+'28':'var(--border)'};border-radius:10px;padding:1px 7px;font-size:11px;">${count}</span>
+    </button>`;
+  }).join('');
+
+  const subTabContents = SUBTYPES.map((t,i) => {
+    const tix = typeCol ? tickets.filter(r => t.match((r[typeCol]||'').trim().toLowerCase())) : [];
+    return `<div id="prodsubtab-${pid}-${t.key}" style="display:${i===0?'block':'none'};">${buildTypeSection(tix, t.color)}</div>`;
+  }).join('');
+
+  // ── Recommended Actions (overall) ────────────────────────────────────────────
   const actions = [];
   if (breached > 0) actions.push(`🔴 <strong>${breached} tickets breached SLA</strong> — escalate or reassign immediately.`);
   if (atRisk > 3)   actions.push(`🟡 <strong>${atRisk} tickets are at risk</strong> — respond before SLA breach.`);
@@ -871,60 +988,6 @@ function renderProductOverview(product, containerId, tickets) {
   const creativePile = tickets.filter(r=>r['Status']==='Pending at Creative').length;
   if (creativePile > 3) actions.push(`🎨 <strong>${creativePile} tickets</strong> pending at Creative — review queue.`);
   if (!actions.length) actions.push(`✅ All metrics looking healthy — keep it up!`);
-
-  // ── Build HTML ────────────────────────────────────────────────────────────────
-  const kpiCards = [
-    { label:'Total Pending', value:total, color },
-    { label:'SLA Breached',  value:breached, color:'#ef4444' },
-    { label:'At Risk',       value:atRisk,   color:'#f59e0b' },
-    { label:'On Track',      value:onTrack,  color:'#10b981' },
-  ].map(k=>`
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:18px 22px;flex:1;min-width:140px;border-top:3px solid ${k.color};">
-      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">${k.label}</div>
-      <div style="font-size:36px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
-    </div>`).join('');
-
-  const prioTableRows = prioRows.map(r=>`
-    <tr>
-      <td style="padding:9px 12px;"><span class="priority-badge prio-${r.p.toLowerCase()}">${r.p}</span></td>
-      <td style="padding:9px 12px;font-size:15px;font-weight:700;color:var(--text);">${r.total}</td>
-      <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#ef4444;">${r.breached}</td>
-      <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#f59e0b;">${r.atRisk}</td>
-      <td style="padding:9px 12px;min-width:160px;">
-        <div style="display:flex;align-items:center;gap:6px;">
-          <div style="flex:1;height:14px;background:var(--surface2);border-radius:4px;overflow:hidden;display:flex;">
-            ${r.breachedPct>0?`<div style="width:${r.breachedPct}%;background:#ef4444;"></div>`:''}
-            ${r.atRiskPct>0?`<div style="width:${r.atRiskPct}%;background:#f59e0b;"></div>`:''}
-          </div>
-          <span style="font-size:11px;color:${r.breachedPct>30?'#ef4444':'var(--muted)'};">${r.breachedPct}%</span>
-        </div>
-      </td>
-      <td style="padding:9px 12px;font-size:11px;color:var(--muted);">${prioSLA[r.p]}</td>
-    </tr>`).join('');
-
-  const statusTableRows = statusRows.map(s=>`
-    <tr>
-      <td style="padding:9px 12px;font-size:13px;font-weight:500;color:var(--text);">${s.label}</td>
-      ${prios.map(p=>`<td style="padding:9px 12px;text-align:center;font-size:13px;font-weight:600;color:${s.byP[p]>0?(p==='Urgent'?'#ef4444':p==='High'?'#f59e0b':'var(--text)'):'var(--muted)'};">${s.byP[p]||'—'}</td>`).join('')}
-      <td style="padding:9px 12px;text-align:center;font-size:14px;font-weight:700;color:${color};">${s.total}</td>
-    </tr>`).join('');
-
-  const oldestRows = oldestTickets.map(r=>{
-    const d=daysOpen(r)??0;
-    const sla=getSLAStatus(r);
-    const badge=sla==='red'?`<span style="background:#ef444422;color:#ef4444;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🔴 Breached</span>`:
-                sla==='orange'?`<span style="background:#f9731622;color:#f97316;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🟠 At Risk</span>`:
-                sla==='amber'?`<span style="background:#f59e0b22;color:#f59e0b;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin-left:6px;">🟡 Watch</span>`:'';
-    return `<tr>
-      <td style="padding:9px 12px;"><a class="tid" href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank">#${r['Ticket ID']}</a></td>
-      <td style="padding:9px 12px;max-width:240px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px;">${(r['Subject']||'—').replace(/</g,'&lt;')}${badge}</td>
-      <td style="padding:9px 12px;">${prioBadge(r['Priority'])}</td>
-      <td style="padding:9px 12px;">${daysBadge(d)}</td>
-      <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['Status']||'—'}</td>
-      <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['Enterprise Name']||'—'}</td>
-      <td style="padding:9px 12px;font-size:12px;color:var(--muted);">${r['CSM Name']||r['CSM Name (updated)']||'—'}</td>
-    </tr>`;
-  }).join('');
 
   el.innerHTML = `
     <div style="padding:20px 0 0;">
@@ -943,44 +1006,11 @@ function renderProductOverview(product, containerId, tickets) {
       <!-- KPI Cards -->
       <div style="display:flex;gap:14px;margin-bottom:18px;flex-wrap:wrap;">${kpiCards}</div>
 
-      <!-- Pendency & Breachometer by Priority -->
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Pendency & Breachometer by Priority</div>
-      <div class="table-wrap" style="margin-bottom:18px;">
-        <table class="ticket-table">
-          <thead><tr>
-            <th>Priority</th><th>Pending</th><th>Breached</th><th>At Risk</th><th style="min-width:160px;">Breachometer</th><th>SLA Target</th>
-          </tr></thead>
-          <tbody>${prioTableRows}</tbody>
-        </table>
-      </div>
+      <!-- Type Sub-tabs -->
+      <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;">${subTabBtns}</div>
 
-      <!-- Status-wise Pendency -->
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Status-wise Pendency</div>
-      <div class="table-wrap" style="margin-bottom:18px;">
-        <table class="ticket-table">
-          <thead><tr>
-            <th>Status</th>
-            <th style="text-align:center;color:#ef4444;">Urgent</th>
-            <th style="text-align:center;color:#f59e0b;">High</th>
-            <th style="text-align:center;color:#3b82f6;">Medium</th>
-            <th style="text-align:center;color:#94a3b8;">Low</th>
-            <th style="text-align:center;color:${color};">Total</th>
-          </tr></thead>
-          <tbody>${statusTableRows}</tbody>
-        </table>
-      </div>
-
-      <!-- Top Oldest Tickets -->
-      ${oldestTickets.length ? `
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Top Oldest Pending Tickets (Urgent + High)</div>
-      <div class="table-wrap" style="margin-bottom:18px;">
-        <table class="ticket-table">
-          <thead><tr>
-            <th>Ticket ID</th><th>Subject</th><th>Priority</th><th>Days Open</th><th>Status</th><th>Enterprise</th><th>CSM</th>
-          </tr></thead>
-          <tbody>${oldestRows}</tbody>
-        </table>
-      </div>` : ''}
+      <!-- Sub-tab Content -->
+      ${subTabContents}
 
       <!-- Recommended Actions -->
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Recommended Actions</div>
@@ -988,6 +1018,23 @@ function renderProductOverview(product, containerId, tickets) {
         ${actions.map(a=>`<div style="font-size:13px;color:var(--text);line-height:1.5;">${a}</div>`).join('')}
       </div>
     </div>`;
+}
+
+function switchProdSubtab(pid, key, btn) {
+  // Hide all content panes for this product
+  document.querySelectorAll(`[id^="prodsubtab-${pid}-"]`).forEach(el => el.style.display = 'none');
+  document.getElementById(`prodsubtab-${pid}-${key}`).style.display = 'block';
+  // Update button styles
+  const SUBTYPE_COLORS = { bug:'#ef4444', task:'#3b82f6', enhancement:'#8b5cf6' };
+  const c = SUBTYPE_COLORS[key] || 'var(--accent)';
+  btn.closest('div').querySelectorAll('button.prod-subtab').forEach(b => {
+    b.style.borderColor = 'var(--border)';
+    b.style.background  = 'var(--surface2)';
+    b.style.color       = 'var(--muted)';
+  });
+  btn.style.borderColor = c;
+  btn.style.background  = c + '18';
+  btn.style.color       = c;
 }
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
