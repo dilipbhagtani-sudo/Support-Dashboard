@@ -850,48 +850,18 @@ function renderProductOverview(product, containerId, tickets) {
   const prios   = ['Urgent','High','Medium','Low'];
   const prioSLA = { Urgent:'≤6h', High:'≤1d', Medium:'≤5d', Low:'≤15d' };
 
-  // ── Helper: build tables HTML for a given ticket set ─────────────────────────
-  function buildTypeSection(tix, typeColor) {
-    const prioRows = prios.map(p => {
-      const pt  = tix.filter(r => r['Priority']===p);
-      const pb  = pt.filter(r => getSLAStatus(r)==='red').length;
-      const pr  = pt.filter(r => { const s=getSLAStatus(r); return s==='amber'||s==='orange'; }).length;
-      const pct = pt.length ? Math.round(pb/pt.length*100) : 0;
-      const rct = pt.length ? Math.round(pr/pt.length*100) : 0;
-      return { p, total:pt.length, breached:pb, atRisk:pr, breachedPct:pct, atRiskPct:rct };
-    }).filter(r=>r.total>0);
-
+  // ── Helper: build status + oldest tables HTML string ─────────────────────────
+  function buildTypeTablesHTML(tix, typeColor) {
     const statusRows = productStatuses.map(s => {
       const st = tix.filter(s.filter);
       const byP = {};
       prios.forEach(p => byP[p] = st.filter(r => r['Priority']===p).length);
       return { ...s, total:st.length, byP };
     });
-
     const oldestTix = [...tix]
       .filter(r => r['Priority']==='Urgent' || r['Priority']==='High')
       .sort((a,b) => (daysOpen(b)??0) - (daysOpen(a)??0))
       .slice(0, 8);
-
-    if (!tix.length) return `<div class="empty-state"><span class="icon">📭</span>No tickets of this type.</div>`;
-
-    const prioTableRows = prioRows.map(r=>`
-      <tr>
-        <td style="padding:9px 12px;"><span class="priority-badge prio-${r.p.toLowerCase()}">${r.p}</span></td>
-        <td style="padding:9px 12px;font-size:15px;font-weight:700;color:var(--text);">${r.total}</td>
-        <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#ef4444;">${r.breached}</td>
-        <td style="padding:9px 12px;font-size:13px;font-weight:600;color:#f59e0b;">${r.atRisk}</td>
-        <td style="padding:9px 12px;min-width:160px;">
-          <div style="display:flex;align-items:center;gap:6px;">
-            <div style="flex:1;height:14px;background:var(--surface2);border-radius:4px;overflow:hidden;display:flex;">
-              ${r.breachedPct>0?`<div style="width:${r.breachedPct}%;background:#ef4444;"></div>`:''}
-              ${r.atRiskPct>0?`<div style="width:${r.atRiskPct}%;background:#f59e0b;"></div>`:''}
-            </div>
-            <span style="font-size:11px;color:${r.breachedPct>30?'#ef4444':'var(--muted)'};">${r.breachedPct}%</span>
-          </div>
-        </td>
-        <td style="padding:9px 12px;font-size:11px;color:var(--muted);">${prioSLA[r.p]}</td>
-      </tr>`).join('');
 
     const statusTableRows = statusRows.map(s=>`
       <tr>
@@ -918,14 +888,7 @@ function renderProductOverview(product, containerId, tickets) {
     }).join('');
 
     return `
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Pendency &amp; Breachometer by Priority</div>
-      <div class="table-wrap" style="margin-bottom:18px;">
-        <table class="ticket-table">
-          <thead><tr><th>Priority</th><th>Pending</th><th>Breached</th><th>At Risk</th><th style="min-width:160px;">Breachometer</th><th>SLA Target</th></tr></thead>
-          <tbody>${prioTableRows||'<tr><td colspan="6" style="padding:20px;text-align:center;color:var(--muted);">No data</td></tr>'}</tbody>
-        </table>
-      </div>
-      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Status-wise Pendency</div>
+      <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:18px 0 10px;">Status-wise Pendency</div>
       <div class="table-wrap" style="margin-bottom:18px;">
         <table class="ticket-table">
           <thead><tr>
@@ -961,7 +924,7 @@ function renderProductOverview(product, containerId, tickets) {
       <div style="font-size:36px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
     </div>`).join('');
 
-  // ── Sub-tab buttons + content ─────────────────────────────────────────────────
+  // ── Sub-tab buttons ───────────────────────────────────────────────────────────
   const subTabBtns = SUBTYPES.map((t,i) => {
     const count = typeCol ? tickets.filter(r => t.match((r[typeCol]||'').trim().toLowerCase())).length : 0;
     return `<button
@@ -970,11 +933,6 @@ function renderProductOverview(product, containerId, tickets) {
       style="display:inline-flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:1px solid ${i===0?t.color:'var(--border)'};background:${i===0?t.color+'18':'var(--surface2)'};color:${i===0?t.color:'var(--muted)'};font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;font-family:var(--font);">
       ${t.icon} ${t.label} <span style="background:${i===0?t.color+'28':'var(--border)'};border-radius:10px;padding:1px 7px;font-size:11px;">${count}</span>
     </button>`;
-  }).join('');
-
-  const subTabContents = SUBTYPES.map((t,i) => {
-    const tix = typeCol ? tickets.filter(r => t.match((r[typeCol]||'').trim().toLowerCase())) : [];
-    return `<div id="prodsubtab-${pid}-${t.key}" style="display:${i===0?'block':'none'};">${buildTypeSection(tix, t.color)}</div>`;
   }).join('');
 
   // ── Recommended Actions (overall) ────────────────────────────────────────────
@@ -1009,8 +967,8 @@ function renderProductOverview(product, containerId, tickets) {
       <!-- Type Sub-tabs -->
       <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap;">${subTabBtns}</div>
 
-      <!-- Sub-tab Content -->
-      ${subTabContents}
+      <!-- Sub-tab Content Panels (populated below via DOM) -->
+      <div id="prodsubtab-panels-${pid}"></div>
 
       <!-- Recommended Actions -->
       <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">Recommended Actions</div>
@@ -1018,6 +976,29 @@ function renderProductOverview(product, containerId, tickets) {
         ${actions.map(a=>`<div style="font-size:13px;color:var(--text);line-height:1.5;">${a}</div>`).join('')}
       </div>
     </div>`;
+
+  // Build each sub-tab panel using DOM so we can append chart elements
+  const panelsContainer = document.getElementById(`prodsubtab-panels-${pid}`);
+  SUBTYPES.forEach((t, i) => {
+    const tix = typeCol ? tickets.filter(r => t.match((r[typeCol]||'').trim().toLowerCase())) : [];
+    const panel = document.createElement('div');
+    panel.id = `prodsubtab-${pid}-${t.key}`;
+    panel.style.display = i === 0 ? 'block' : 'none';
+
+    if (!tix.length) {
+      panel.innerHTML = `<div class="empty-state"><span class="icon">📭</span>No ${t.label} tickets found.</div>`;
+    } else {
+      // SLA Breachometer (visual — same as Overview tab)
+      panel.appendChild(buildSLASection(tix, `SLA Breachometer — ${t.label} Tickets`));
+      // Aging bars (visual — same as Overview tab)
+      panel.appendChild(buildAgingStackedSection(tix, `Pendency Aging — ${t.label} Tickets`));
+      // Status-wise pendency + oldest tickets tables
+      const tablesDiv = document.createElement('div');
+      tablesDiv.innerHTML = buildTypeTablesHTML(tix, t.color);
+      panel.appendChild(tablesDiv);
+    }
+    panelsContainer.appendChild(panel);
+  });
 }
 
 function switchProdSubtab(pid, key, btn) {
