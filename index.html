@@ -1015,7 +1015,7 @@ function renderProductOverview(product, containerId, tickets) {
   vocLabel.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;margin-top:24px;';
   vocLabel.textContent = 'Top VoC L1 by Type';
   afterPanels.appendChild(vocLabel);
-  const vocTable = buildTypeVoCTables(tickets, null);
+  const vocTable = buildTypeVoCTables(tickets, null, pid);
   if (vocTable) afterPanels.appendChild(vocTable);
 
   // 2. Top Oldest Pending Tickets
@@ -1124,7 +1124,7 @@ function renderOverview(buckets,total){
     const baseForTables=window._slaFilter
       ?allPendingForSplit.filter(r=>getSLAStatus(r)===window._slaFilter)
       :allPendingForSplit;
-    const typeTbl=buildTypeVoCTables(baseForTables,window._slaFilter);
+    const typeTbl=buildTypeVoCTables(baseForTables,window._slaFilter,'global');
     if(typeTbl) typeTablesEl.appendChild(typeTbl);
   }
 
@@ -1161,7 +1161,7 @@ function renderOverview(buckets,total){
 }
 
 // ─── TYPE VOC TABLES (Bug / Task / Query) — clickable for L2 drill ────────────
-function buildTypeVoCTables(tickets, activeSlaFilter){
+function buildTypeVoCTables(tickets, activeSlaFilter, scope='global'){
   const TYPE_COLS=['Type','type','Ticket Type','ticket_type'];
   let typeCol=null;
   if(tickets.length){
@@ -1202,12 +1202,12 @@ function buildTypeVoCTables(tickets, activeSlaFilter){
 
     // Store in global for toggleL2Drill
     top10.forEach((e,i)=>{
-      window._typeData[`${t.key}-${i}`]={tickets:e[1].tickets,l1:e[0],color:t.color};
+      window._typeData[`${scope}_${t.key}-${i}`]={tickets:e[1].tickets,l1:e[0],color:t.color};
     });
 
     const rowsHTML=top10.length
       ? top10.map((e,i)=>{
-          const key=`${t.key}-${i}`;
+          const key=`${scope}_${t.key}-${i}`;
           return `<tr class="voc-l1-row" data-l2key="${key}" onclick="toggleL2Drill('${key}')" style="cursor:pointer;transition:background .15s;">
             <td style="padding:5px 10px;font-size:11px;color:var(--muted2);width:22px;">${i+1}</td>
             <td style="padding:5px 10px;font-size:12px;color:var(--text);max-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="${e[0].replace(/"/g,'&quot;')}">${e[0]} <span style="font-size:10px;color:var(--muted2);">▾</span></td>
@@ -1886,8 +1886,10 @@ function toggleL2Drill(key){
   const drillRow=document.getElementById('l2drill-'+key);
   if(!drillRow)return;
 
-  // Collapse all other drill rows in the same table (same type prefix)
-  const typePrefix=key.split('-')[0];
+  // Collapse all other drill rows in the same table (same scope_type prefix)
+  // key format: scope_Type-index  e.g. "studio_Bug-0" or "global_Bug-0"
+  const parts = key.split('-');
+  const typePrefix = parts.slice(0, parts.length - 1).join('-'); // everything except last index
   document.querySelectorAll('[id^="l2drill-'+typePrefix+'-"]').forEach(r=>{
     if(r.id!=='l2drill-'+key) r.style.display='none';
   });
