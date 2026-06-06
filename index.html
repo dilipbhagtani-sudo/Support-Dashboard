@@ -265,6 +265,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     </div>
     <div id="voc-drill-panel" style="margin-bottom:18px;"></div>
     <div id="ticket-viewer-panel" style="margin-bottom:18px;display:none;"></div>
+    <!-- Global ticket modal is appended to body dynamically -->
 
     <!-- Aging — moved to bottom -->
     <div id="ov-aging-section"></div>
@@ -2008,14 +2009,15 @@ function showTicketViewerFromStore(key) {
 }
 
 function showTicketViewerPanel(tickets, label, color) {
-  const panel = document.getElementById('ticket-viewer-panel');
-  if (!panel) return;
+  // Remove any existing modal
+  const existing = document.getElementById('global-ticket-modal');
+  if (existing) existing.remove();
+
   if (!tickets || !tickets.length) {
-    panel.innerHTML = `<div class="chart-card"><div class="chart-title" style="color:${color||'var(--accent)'};">${label}</div><div class="empty-state" style="padding:24px;"><span class="icon">📭</span>No tickets found.</div></div>`;
-    panel.style.display = 'block';
-    panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+    _buildTicketModal(`<div style="padding:40px;text-align:center;color:var(--muted);"><span style="font-size:32px;display:block;margin-bottom:12px;">📭</span>No tickets found.</div>`, label, color);
     return;
   }
+
   const sorted = [...tickets].sort((a,b) => (daysOpen(b)??0) - (daysOpen(a)??0));
   const rows = sorted.map(r => {
     const d = daysOpen(r);
@@ -2034,12 +2036,8 @@ function showTicketViewerPanel(tickets, label, color) {
       <td style="font-size:12px;color:var(--muted);max-width:120px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r['VoC L2']||'—'}</td>
     </tr>`;
   }).join('');
-  panel.style.display = 'block';
-  panel.innerHTML = `<div class="chart-card" style="border-top:3px solid ${color||'var(--accent)'};padding:14px 16px;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
-      <div class="chart-title" style="color:${color||'var(--accent)'};margin-bottom:0;">📋 ${label} <span style="font-size:12px;font-weight:400;color:var(--muted);">(${tickets.length} tickets)</span></div>
-      <button onclick="document.getElementById('ticket-viewer-panel').style.display='none'" style="background:var(--surface2);border:1px solid var(--border2);color:var(--muted);border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;">✕ Close</button>
-    </div>
+
+  _buildTicketModal(`
     <div style="overflow-x:auto;">
       <table class="ticket-table">
         <thead><tr>
@@ -2048,9 +2046,32 @@ function showTicketViewerPanel(tickets, label, color) {
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>
-    </div>
-  </div>`;
-  panel.scrollIntoView({behavior:'smooth', block:'nearest'});
+    </div>`, label, color, tickets.length);
+}
+
+function _buildTicketModal(bodyHTML, label, color, count) {
+  const modal = document.createElement('div');
+  modal.id = 'global-ticket-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px 16px;background:rgba(0,0,0,0.45);backdrop-filter:blur(2px);overflow-y:auto;';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-top:3px solid ${color||'var(--accent)'};border-radius:16px;width:100%;max-width:1100px;box-shadow:0 24px 64px rgba(0,0,0,0.2);animation:fadeInUp .18s ease;">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px;">
+        <div style="font-size:14px;font-weight:700;color:${color||'var(--accent)'};">📋 ${label}${count!=null?' <span style="font-size:12px;font-weight:400;color:var(--muted);">('+count+' tickets)</span>':''}</div>
+        <button onclick="document.getElementById('global-ticket-modal').remove()" style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:5px 14px;font-size:13px;cursor:pointer;font-family:var(--font);">✕ Close</button>
+      </div>
+      <div style="padding:16px 20px;">${bodyHTML}</div>
+    </div>`;
+  // Close on backdrop click
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+  document.body.appendChild(modal);
+}
+
+// Inject modal animation if not already present
+if (!document.getElementById('modal-anim-style')) {
+  const s = document.createElement('style');
+  s.id = 'modal-anim-style';
+  s.textContent = '@keyframes fadeInUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}';
+  document.head.appendChild(s);
 }
 
 // ─── MONTHLY SUMMARY TAB ──────────────────────────────────────────────────────
