@@ -639,7 +639,8 @@ function getFiltered(){
     if(cf!=='all'&&(r['cf_categorytype']||r['Category/Type']||'').trim()!==cf)return false;
     if(ef!=='all'&&(r['ENT Type']||'').trim()!==ef)return false;
     if(csmf!=='all'&&(r['CSM Name']||r['CSM Name (updated)']||'').trim()!==csmf)return false;
-    if(sf!=='all'&&getSLAStatus(r)!==sf)return false;
+    if(sf==='amber'){const s=getSLAStatus(r);if(s!=='amber'&&s!=='orange')return false;}
+    else if(sf!=='all'&&getSLAStatus(r)!==sf)return false;
     if(window._vocL2Filter&&(r['VoC L2']||'').trim()!==window._vocL2Filter)return false;
     return true;
   });
@@ -912,16 +913,19 @@ function renderProductOverview(product, containerId, tickets) {
       </div>` : ''}`;
   }
 
-  // ── KPI cards HTML ────────────────────────────────────────────────────────────
+  // ── KPI cards HTML (clickable — filter whole dashboard) ──────────────────────
   const kpiCards = [
-    { label:'Total Pending', value:total,    color },
-    { label:'SLA Breached',  value:breached, color:'#ef4444' },
-    { label:'At Risk',       value:atRisk,   color:'#f59e0b' },
-    { label:'On Track',      value:onTrack,  color:'#10b981' },
+    { label:'Total Pending', value:total,    color,        sla:'all',   subtitle:'Open + On-Hold tickets' },
+    { label:'SLA Breached',  value:breached, color:'#ef4444', sla:'red',   subtitle:'Overdue resolution' },
+    { label:'At Risk',       value:atRisk,   color:'#f59e0b', sla:'amber', subtitle:'Breach within 24 hrs' },
+    { label:'On Track',      value:onTrack,  color:'#10b981', sla:'green', subtitle:'Within SLA window' },
   ].map(k=>`
-    <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:18px 22px;flex:1;min-width:140px;border-top:3px solid ${k.color};">
-      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;">${k.label}</div>
+    <div onclick="filterFromProdOverview('${product}','${k.sla}')"
+      style="background:${k.color}0d;border:1.5px solid ${k.color}33;border-radius:14px;padding:18px 22px;flex:1;min-width:140px;border-top:3px solid ${k.color};cursor:pointer;transition:box-shadow .15s;"
+      onmouseover="this.style.boxShadow='0 4px 16px ${k.color}33'" onmouseout="this.style.boxShadow='none'">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:${k.color};margin-bottom:8px;">${k.label}</div>
       <div style="font-size:36px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:5px;">${k.subtitle}</div>
     </div>`).join('');
 
   // ── Sub-tab buttons ───────────────────────────────────────────────────────────
@@ -999,6 +1003,27 @@ function renderProductOverview(product, containerId, tickets) {
     }
     panelsContainer.appendChild(panel);
   });
+
+  // ── VoC L1 drill-down table (Bug / Task / Enhancement) ───────────────────────
+  const vocSection = document.createElement('div');
+  vocSection.style.cssText = 'margin-top:24px;';
+  const vocLabel = document.createElement('div');
+  vocLabel.style.cssText = 'font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;';
+  vocLabel.textContent = 'Top VoC L1 by Type';
+  vocSection.appendChild(vocLabel);
+  const vocTable = buildTypeVoCTables(tickets, null);
+  if (vocTable) vocSection.appendChild(vocTable);
+  el.querySelector(`#prodsubtab-panels-${pid}`).after(vocSection);
+}
+
+function filterFromProdOverview(product, slaFilter) {
+  const ps = document.getElementById('product-select');
+  if (ps) ps.value = product;
+  const ss = document.getElementById('sla-select');
+  if (ss) ss.value = slaFilter || 'all';
+  window._slaFilter = (slaFilter && slaFilter !== 'all') ? slaFilter : null;
+  renderAll();
+  switchTab('overview');
 }
 
 function switchProdSubtab(pid, key, btn) {
@@ -1135,9 +1160,9 @@ function buildTypeVoCTables(tickets, activeSlaFilter){
   if(!typeCol) return null;
 
   const TYPES=[
-    {key:'Bug',   label:'Bugs',          icon:'🐛', color:'#ef4444', match:v=>v.includes('bug')},
-    {key:'Task',  label:'Open Tasks',    icon:'📋', color:'#3b82f6', match:v=>v.includes('task')},
-    {key:'Query', label:'Query (How to)',icon:'❓', color:'#10b981', match:v=>v.includes('query')||v.includes('how to')||v.includes('howto')},
+    {key:'Bug',         label:'Bugs',        icon:'🐛', color:'#ef4444', match:v=>v.includes('bug')},
+    {key:'Task',        label:'Open Tasks',  icon:'📋', color:'#3b82f6', match:v=>v.includes('task')},
+    {key:'Enhancement', label:'Enhancement', icon:'✨', color:'#8b5cf6', match:v=>v.includes('enhancement')||v.includes('feature')||v.includes('improvement')},
   ];
   const EXCL=['','unspecified','n/a','na','none','not specified'];
   const SLA_LABELS={green:'Within SLA',amber:'Slightly Over',orange:'Moderately Over',red:'SLA Breached'};
