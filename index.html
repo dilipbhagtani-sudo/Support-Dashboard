@@ -219,6 +219,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="production">Pending at Production <span class="tab-badge" id="badge-production">0</span></div>
     <div class="tab" data-tab="creative">Pending at Creative <span class="tab-badge" id="badge-creative">0</span></div>
     <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
+    <div class="tab" data-tab="pendingcsm">Pending on CSM/OB <span class="tab-badge" id="badge-pendingcsm">0</span></div>
     <div class="tab" data-tab="alltickets">All Tickets <span class="tab-badge" id="badge-alltickets">0</span></div>
     <div class="tab" data-tab="enterprise">Enterprise <span class="tab-badge" id="badge-enterprise">0</span></div>
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
@@ -281,6 +282,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-production"><div id="detail-production"></div></div>
   <div class="tab-content" id="tab-creative"><div id="detail-creative"></div></div>
   <div class="tab-content" id="tab-onhold"><div id="detail-onhold"></div></div>
+  <div class="tab-content" id="tab-pendingcsm"><div id="detail-pendingcsm"></div></div>
   <div class="tab-content" id="tab-alltickets"><div id="detail-alltickets"></div></div>
   <div class="tab-content" id="tab-enterprise"><div id="detail-enterprise"></div></div>
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
@@ -312,6 +314,8 @@ const CATEGORIES = [
     filter: r => r['Status'] === 'Pending at Creative' },
   { id:'onhold',     label:'PS On Hold',              color:'#64748b',
     filter: r => r['Status'] === 'On Hold (Internal)' },
+  { id:'pendingcsm', label:'Pending on CSM/OB',       color:'#a855f7',
+    filter: r => r['Status'] === 'Pending on CSM/OB' },
 ];
 
 // ─── AGING BUCKETS ────────────────────────────────────────────────────────────
@@ -839,6 +843,7 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', filter: r => r['Status']==='Pending at Production' },
     { label:'Pending at Creative',   filter: r => r['Status']==='Pending at Creative' },
     { label:'PS On Hold',            filter: r => r['Status']==='On Hold (Internal)' },
+    { label:'Pending on CSM/OB',     filter: r => r['Status']==='Pending on CSM/OB' },
   ] : [
     { label:'PS Open',               filter: r => r['Status']==='Open' },
     { label:'L1 Pendency',           filter: r => r['Status']==='Pending L1 (Technical)' },
@@ -847,6 +852,7 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', filter: r => r['Status']==='Pending at Production' },
     { label:'Pending at Creative',   filter: r => r['Status']==='Pending at Creative' },
     { label:'PS On Hold',            filter: r => r['Status']==='On Hold (Internal)' },
+    { label:'Pending on CSM/OB',     filter: r => r['Status']==='Pending on CSM/OB' },
   ];
 
   const prios   = ['Urgent','High','Medium','Low'];
