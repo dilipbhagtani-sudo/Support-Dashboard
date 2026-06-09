@@ -190,8 +190,6 @@ function mapTicket(t, lookup = {}) {
     'CSM Name (updated)':       entInfo.csm || '',
     'Jira':                     cf.cf_jira_ticket || '',
     'Tags':                     tags,
-    // ETA field — only populated for L2 & Product tickets (cf_eta is the Freshdesk API field name)
-    'ETA':                      cf.cf_eta || '',
     'Created time':             created,
     'Resolved at':              stats.resolved_at || '',
     'Month':                    month,
