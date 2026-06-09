@@ -202,11 +202,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
         <option value="orange">🟠 Moderately Over</option>
         <option value="red">🔴 SLA Breached</option>
       </select>
-      <select class="filter-select" id="eta-select" onchange="renderAll()" style="min-width:120px;">
-        <option value="all">All ETA</option>
-        <option value="set">📅 ETA Set</option>
-        <option value="unset">⬜ No ETA</option>
-      </select>
     </div>
   </div>
 
@@ -637,7 +632,6 @@ function getFiltered(){
   const ef=document.getElementById('enttype-select').value;
   const csmf=(document.getElementById('csm-select')||{}).value||'all';
   const sf=(document.getElementById('sla-select')||{}).value||'all';
-  const etaf=(document.getElementById('eta-select')||{}).value||'all';
   return allData.filter(r=>{
     if(mf!=='all'){
       const ct=getCreatedTime(r);if(!ct)return false;
@@ -652,8 +646,6 @@ function getFiltered(){
     if(csmf!=='all'&&(r['CSM Name']||r['CSM Name (updated)']||'').trim()!==csmf)return false;
     if(sf==='amber'){const s=getSLAStatus(r);if(s!=='amber'&&s!=='orange')return false;}
     else if(sf!=='all'&&getSLAStatus(r)!==sf)return false;
-    if(etaf==='set'&&!(r['ETA']||'').trim())return false;
-    if(etaf==='unset'&&(r['ETA']||'').trim())return false;
     if(window._vocL2Filter&&(r['VoC L2']||'').trim()!==window._vocL2Filter)return false;
     return true;
   });
@@ -667,15 +659,12 @@ function getFilteredAllTickets() {
   const cf  = document.getElementById('category-select').value;
   const ef  = document.getElementById('enttype-select').value;
   const csmf = (document.getElementById('csm-select') || {}).value || 'all';
-  const etaf = (document.getElementById('eta-select') || {}).value || 'all';
   return all.filter(r => {
     if (pf  !== 'all' && r['Product (Studio/Vini)'] !== pf) return false;
     if (prf !== 'all' && r['Priority'] !== prf) return false;
     if (cf  !== 'all' && (r['cf_categorytype'] || r['Category/Type'] || '').trim() !== cf) return false;
     if (ef  !== 'all' && (r['ENT Type'] || '').trim() !== ef) return false;
     if (csmf !== 'all' && (r['CSM Name'] || r['CSM Name (updated)'] || '').trim() !== csmf) return false;
-    if (etaf === 'set'   && !(r['ETA'] || '').trim()) return false;
-    if (etaf === 'unset' &&  (r['ETA'] || '').trim()) return false;
     return true;
   });
 }
@@ -911,26 +900,16 @@ function renderProductOverview(product, containerId, tickets) {
   }).join('');
 
   // ── Status-wise pendency rows ─────────────────────────────────────────────────
-  // Only show ETA column for statuses where ETA is relevant (L2 & Product statuses)
-  const ETA_RELEVANT_STATUSES = new Set(['Pending L2 (Technical)', 'Waiting on Product']);
   const totRow     = PRIOS.map(p => tickets.filter(r => r['Priority']===p).length);
-  const totETA     = tickets.filter(r => (r['ETA']||'').trim()).length;
   const statusRows = STATUS_CFG.map(s => {
     const stix  = tickets.filter(r => r['Status'] === s.status);
     if (!stix.length) return null;
-    const byP     = PRIOS.map(p => stix.filter(r => r['Priority']===p).length);
-    const etaCount = ETA_RELEVANT_STATUSES.has(s.status)
-      ? stix.filter(r => (r['ETA']||'').trim()).length
-      : null;
-    const etaCell = etaCount !== null
-      ? `<td style="padding:11px 16px;text-align:center;font-size:13px;font-weight:${etaCount?'700':'400'};color:${etaCount?'#06b6d4':'var(--muted)'};" title="${etaCount} tickets have ETA set">${etaCount||'—'}</td>`
-      : `<td style="padding:11px 16px;text-align:center;font-size:12px;color:var(--muted2);">—</td>`;
+    const byP   = PRIOS.map(p => stix.filter(r => r['Priority']===p).length);
     const clkFn = `(function(){var t=(window._pOverviewTickets||{})['${pid}']||[];showTicketViewerPanel(t.filter(function(r){return r['Status']==='${s.status}'}),'${s.label} — ${product}','${s.color}')})()`;
     return `<tr style="border-bottom:1px solid var(--border);cursor:pointer;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" onclick="${clkFn}">
       <td style="padding:11px 16px;"><span style="display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--text);"><span style="width:8px;height:8px;border-radius:50%;background:${s.color};flex-shrink:0;display:inline-block;"></span>${s.label}</span></td>
       ${byP.map((n,i) => `<td style="padding:11px 16px;text-align:center;font-size:13px;font-weight:${n?'600':'400'};color:${n?(i===0?'#ef4444':i===1?'#f59e0b':'var(--text)'):'var(--muted)'};">${n||'—'}</td>`).join('')}
       <td style="padding:11px 16px;text-align:center;font-size:14px;font-weight:700;color:${s.color};">${stix.length}</td>
-      ${etaCell}
     </tr>`;
   }).filter(Boolean).join('');
 
@@ -1053,7 +1032,6 @@ function renderProductOverview(product, containerId, tickets) {
               <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:#3b82f6;">Medium</th>
               <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:#94a3b8;">Low</th>
               <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">Total</th>
-              <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:#06b6d4;" title="Count of L2 &amp; Waiting on Product tickets with ETA date filled">📅 ETA</th>
             </tr>
           </thead>
           <tbody>
@@ -1062,7 +1040,6 @@ function renderProductOverview(product, containerId, tickets) {
               <td style="padding:12px 16px;font-size:14px;font-weight:700;color:var(--text);">Total</td>
               ${totRow.map((n,i) => `<td style="padding:12px 16px;text-align:center;font-size:14px;font-weight:700;color:${['#ef4444','#f59e0b','#3b82f6','#94a3b8'][i]};">${n||'—'}</td>`).join('')}
               <td style="padding:12px 16px;text-align:center;font-size:14px;font-weight:700;color:${color};">${total}</td>
-              <td style="padding:12px 16px;text-align:center;font-size:14px;font-weight:700;color:#06b6d4;">${totETA||'—'}</td>
             </tr>
           </tbody>
         </table>
