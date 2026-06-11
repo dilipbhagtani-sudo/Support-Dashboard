@@ -220,7 +220,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="creative">Pending at Creative <span class="tab-badge" id="badge-creative">0</span></div>
     <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
     <div class="tab" data-tab="pendingcsm">Pending on CSM/OB <span class="tab-badge" id="badge-pendingcsm">0</span></div>
-    <div class="tab" data-tab="waitingthirdparty">Waiting on Third Party <span class="tab-badge" id="badge-waitingthirdparty">0</span></div>
     <div class="tab" data-tab="alltickets">All Tickets <span class="tab-badge" id="badge-alltickets">0</span></div>
     <div class="tab" data-tab="enterprise">Enterprise <span class="tab-badge" id="badge-enterprise">0</span></div>
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
@@ -284,7 +283,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-creative"><div id="detail-creative"></div></div>
   <div class="tab-content" id="tab-onhold"><div id="detail-onhold"></div></div>
   <div class="tab-content" id="tab-pendingcsm"><div id="detail-pendingcsm"></div></div>
-  <div class="tab-content" id="tab-waitingthirdparty"><div id="detail-waitingthirdparty"></div></div>
   <div class="tab-content" id="tab-alltickets"><div id="detail-alltickets"></div></div>
   <div class="tab-content" id="tab-enterprise"><div id="detail-enterprise"></div></div>
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
@@ -318,8 +316,6 @@ const CATEGORIES = [
     filter: r => r['Status'] === 'On Hold (Internal)' },
   { id:'pendingcsm', label:'Pending on CSM/OB',       color:'#a855f7',
     filter: r => r['Status'] === 'Pending on CSM/OB' },
-  { id:'waitingthirdparty', label:'Waiting on Third Party', color:'#0ea5e9',
-    filter: r => r['Status'] === 'Waiting on third party' },
 ];
 
 // ─── AGING BUCKETS ────────────────────────────────────────────────────────────
@@ -567,8 +563,7 @@ function loadFromSheets(){  // keep name so refresh-btn onclick still works
     .then(data=>{
       clearTimeout(loadTimer);
       window._allTicketsData=data;
-      const ALWAYS_OPEN_STATUSES = ['Waiting on third party','Pending on CSM/OB'];
-      allData=data.filter(r=>r['is_pending']!==false || ALWAYS_OPEN_STATUSES.includes(r['Status'])); // pending tickets only for main dashboard
+      allData=data.filter(r=>r['is_pending']!==false); // pending tickets only for main dashboard
       populateFilters();
       document.getElementById('load-screen').classList.add('hidden');
       document.getElementById('dashboard').style.display='block';
@@ -855,7 +850,6 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
     { label:'Pending on CSM/OB',     status:'Pending on CSM/OB',     color:'#a855f7' },
-    { label:'Waiting on Third Party',status:'Waiting on third party', color:'#0ea5e9' },
   ] : [
     { label:'PS Open',               status:'Open',                   color:'#ef4444' },
     { label:'L1 Pendency',           status:'Pending L1 (Technical)', color:'#8b5cf6' },
@@ -865,7 +859,6 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
     { label:'Pending on CSM/OB',     status:'Pending on CSM/OB',     color:'#a855f7' },
-    { label:'Waiting on Third Party',status:'Waiting on third party', color:'#0ea5e9' },
   ];
 
   const PRIOS = ['Urgent','High','Medium','Low'];
