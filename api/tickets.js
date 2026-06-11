@@ -27,10 +27,11 @@ const STATUS_LABELS = {
   17: 'On Hold (Internal)',
   18: 'Pending at Creative',
   19: 'Pending at Production',
+  20: 'Pending on (CSM)(OB)',
 };
 
 // Pending status codes (used for is_pending flag)
-const PENDING_STATUSES = new Set([2, 7, 15, 16, 17, 18, 19]);
+const PENDING_STATUSES = new Set([2, 7, 10, 15, 16, 17, 18, 19, 20]);
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
 
