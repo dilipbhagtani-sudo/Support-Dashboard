@@ -724,11 +724,20 @@ function normalizePriority(r){
   if(raw==='low'   ||raw==='1') return 'Low';
   return null;
 }
+function getEndTime(r){
+  // For resolved/closed tickets use resolved_at as the end time so SLA is
+  // evaluated against the actual resolution moment, not "now".
+  if(r['is_pending']===false){
+    const ra=r['Resolved at'];
+    if(ra){let e=new Date(ra);if(!isNaN(e.getTime()))return e.getTime();}
+  }
+  return Date.now();
+}
 function daysOpen(r){
   const ct=getCreatedTime(r);if(!ct)return null;
   let d=new Date(ct);
   if(isNaN(d.getTime()))d=new Date(ct.replace(' ','T'));
-  return isNaN(d.getTime())?null:Math.floor((Date.now()-d.getTime())/86400000);
+  return isNaN(d.getTime())?null:Math.floor((getEndTime(r)-d.getTime())/86400000);
 }
 function hoursOpen(r){
   const ct=getCreatedTime(r);if(!ct)return null;
@@ -738,7 +747,7 @@ function hoursOpen(r){
     const days=daysOpen(r);
     return days===null?null:days*24;
   }
-  return (Date.now()-d.getTime())/3600000;
+  return (getEndTime(r)-d.getTime())/3600000;
 }
 // SLA thresholds: Urgent 6h | High 1d | Medium 5d | Low 10d
 // Color bands: Green=within SLA, Amber=slight, Orange=moderate, Red=breached
