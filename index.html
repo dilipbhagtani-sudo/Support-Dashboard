@@ -192,6 +192,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <select class="filter-select" id="enttype-select" onchange="renderAll()">
         <option value="all">All Ent Types</option>
       </select>
+      <select class="filter-select" id="ticket-type-select" onchange="renderAll()">
+        <option value="all">All Types</option>
+        <option value="external">External</option>
+        <option value="internal">Internal</option>
+      </select>
+
       <select class="filter-select" id="csm-select" onchange="renderAll()">
         <option value="all">All CSMs</option>
       </select>
@@ -632,6 +638,7 @@ function getFiltered(){
   const ef=document.getElementById('enttype-select').value;
   const csmf=(document.getElementById('csm-select')||{}).value||'all';
   const sf=(document.getElementById('sla-select')||{}).value||'all';
+  const ttf=(document.getElementById('ticket-type-select')||{}).value||'all';
   return allData.filter(r=>{
     if(mf!=='all'){
       const ct=getCreatedTime(r);if(!ct)return false;
@@ -647,6 +654,7 @@ function getFiltered(){
     if(sf==='amber'){const s=getSLAStatus(r);if(s!=='amber'&&s!=='orange')return false;}
     else if(sf!=='all'&&getSLAStatus(r)!==sf)return false;
     if(window._vocL2Filter&&(r['VoC L2']||'').trim()!==window._vocL2Filter)return false;
+    if(ttf!=='all'){const tt=(r['Ticket Type']||'').toLowerCase();if(tt!==ttf)return false;}
     return true;
   });
 }
@@ -665,6 +673,8 @@ function getFilteredAllTickets() {
     if (cf  !== 'all' && (r['cf_categorytype'] || r['Category/Type'] || '').trim() !== cf) return false;
     if (ef  !== 'all' && (r['ENT Type'] || '').trim() !== ef) return false;
     if (csmf !== 'all' && (r['CSM Name'] || r['CSM Name (updated)'] || '').trim() !== csmf) return false;
+    const ttf = (document.getElementById('ticket-type-select') || {}).value || 'all';
+    if (ttf !== 'all') { const tt = (r['Ticket Type'] || '').toLowerCase(); if (tt !== ttf) return false; }
     return true;
   });
 }
@@ -849,7 +859,8 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on CSM/OB',     status:'Pending on (CSM)(OB)',     color:'#a855f7' },
+    { label:'Pending on CSM/OB',     status:'Pending on (CSM)(OB)',  color:'#a855f7' },
+    { label:'Waiting on Third Party',status:'Waiting on third party', color:'#0ea5e9' },
   ] : [
     { label:'PS Open',               status:'Open',                   color:'#ef4444' },
     { label:'L1 Pendency',           status:'Pending L1 (Technical)', color:'#8b5cf6' },
