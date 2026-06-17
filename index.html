@@ -167,11 +167,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="header-meta">
         <span id="record-count">0</span> pending tickets &nbsp;·&nbsp;
         <span id="last-synced"></span>
-        <button class="refresh-btn" onclick="manualRefresh()">↻ Refresh</button>
-        <span id="auto-sync-indicator" style="font-size:11px;color:var(--muted2);display:flex;align-items:center;gap:5px;">
-          <span id="sync-dot" style="width:7px;height:7px;border-radius:50%;background:var(--muted2);display:inline-block;transition:background .3s;"></span>
-          <span id="sync-label">next sync in <span id="sync-countdown">2:00</span></span>
-        </span>
+        <button class="refresh-btn" onclick="loadFromSheets()">↻ Refresh</button>
       </div>
     </div>
     <div class="header-right">
@@ -223,8 +219,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="production">Pending at Production <span class="tab-badge" id="badge-production">0</span></div>
     <div class="tab" data-tab="creative">Pending at Creative <span class="tab-badge" id="badge-creative">0</span></div>
     <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
-    <div class="tab" data-tab="pendingcsm">Pending on (CSM)(OB) <span class="tab-badge" id="badge-pendingcsm">0</span></div>
-    <div class="tab" data-tab="waitingthirdparty">Waiting on Third Party <span class="tab-badge" id="badge-waitingthirdparty">0</span></div>
+    <div class="tab" data-tab="pendingcsm">Pending on CSM/OB <span class="tab-badge" id="badge-pendingcsm">0</span></div>
     <div class="tab" data-tab="alltickets">All Tickets <span class="tab-badge" id="badge-alltickets">0</span></div>
     <div class="tab" data-tab="enterprise">Enterprise <span class="tab-badge" id="badge-enterprise">0</span></div>
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
@@ -288,7 +283,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-creative"><div id="detail-creative"></div></div>
   <div class="tab-content" id="tab-onhold"><div id="detail-onhold"></div></div>
   <div class="tab-content" id="tab-pendingcsm"><div id="detail-pendingcsm"></div></div>
-  <div class="tab-content" id="tab-waitingthirdparty"><div id="detail-waitingthirdparty"></div></div>
   <div class="tab-content" id="tab-alltickets"><div id="detail-alltickets"></div></div>
   <div class="tab-content" id="tab-enterprise"><div id="detail-enterprise"></div></div>
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
@@ -320,10 +314,8 @@ const CATEGORIES = [
     filter: r => r['Status'] === 'Pending at Creative' },
   { id:'onhold',     label:'PS On Hold',              color:'#64748b',
     filter: r => r['Status'] === 'On Hold (Internal)' },
-  { id:'pendingcsm', label:'Pending on (CSM)(OB)',     color:'#a855f7',
-    filter: r => r['Status'] === 'Pending on (CSM)(OB)' },
-  { id:'waitingthirdparty', label:'Waiting on Third Party', color:'#0ea5e9',
-    filter: r => r['Status'] === 'Waiting on third party' },
+  { id:'pendingcsm', label:'Pending on CSM/OB',       color:'#a855f7',
+    filter: r => r['Status'] === 'Pending on CSM/OB' },
 ];
 
 // ─── AGING BUCKETS ────────────────────────────────────────────────────────────
@@ -571,8 +563,7 @@ function loadFromSheets(){  // keep name so refresh-btn onclick still works
     .then(data=>{
       clearTimeout(loadTimer);
       window._allTicketsData=data;
-      const ALWAYS_OPEN_STATUSES = ['Waiting on third party','Pending on (CSM)(OB)'];
-      allData=data.filter(r=>r['is_pending']!==false || ALWAYS_OPEN_STATUSES.includes(r['Status'])); // pending tickets only for main dashboard
+      allData=data.filter(r=>r['is_pending']!==false); // pending tickets only for main dashboard
       populateFilters();
       document.getElementById('load-screen').classList.add('hidden');
       document.getElementById('dashboard').style.display='block';
@@ -728,20 +719,11 @@ function normalizePriority(r){
   if(raw==='low'   ||raw==='1') return 'Low';
   return null;
 }
-function getEndTime(r){
-  // For resolved/closed tickets use resolved_at as the end time so SLA is
-  // evaluated against the actual resolution moment, not "now".
-  if(r['is_pending']===false){
-    const ra=r['Resolved at'];
-    if(ra){let e=new Date(ra);if(!isNaN(e.getTime()))return e.getTime();}
-  }
-  return Date.now();
-}
 function daysOpen(r){
   const ct=getCreatedTime(r);if(!ct)return null;
   let d=new Date(ct);
   if(isNaN(d.getTime()))d=new Date(ct.replace(' ','T'));
-  return isNaN(d.getTime())?null:Math.floor((getEndTime(r)-d.getTime())/86400000);
+  return isNaN(d.getTime())?null:Math.floor((Date.now()-d.getTime())/86400000);
 }
 function hoursOpen(r){
   const ct=getCreatedTime(r);if(!ct)return null;
@@ -751,7 +733,7 @@ function hoursOpen(r){
     const days=daysOpen(r);
     return days===null?null:days*24;
   }
-  return (getEndTime(r)-d.getTime())/3600000;
+  return (Date.now()-d.getTime())/3600000;
 }
 // SLA thresholds: Urgent 6h | High 1d | Medium 5d | Low 10d
 // Color bands: Green=within SLA, Amber=slight, Orange=moderate, Red=breached
@@ -867,8 +849,7 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on (CSM)(OB)',   status:'Pending on (CSM)(OB)',   color:'#a855f7' },
-    { label:'Waiting on Third Party',status:'Waiting on third party', color:'#0ea5e9' },
+    { label:'Pending on CSM/OB',     status:'Pending on CSM/OB',     color:'#a855f7' },
   ] : [
     { label:'PS Open',               status:'Open',                   color:'#ef4444' },
     { label:'L1 Pendency',           status:'Pending L1 (Technical)', color:'#8b5cf6' },
@@ -877,8 +858,7 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on (CSM)(OB)',   status:'Pending on (CSM)(OB)',   color:'#a855f7' },
-    { label:'Waiting on Third Party',status:'Waiting on third party', color:'#0ea5e9' },
+    { label:'Pending on CSM/OB',     status:'Pending on CSM/OB',     color:'#a855f7' },
   ];
 
   const PRIOS = ['Urgent','High','Medium','Low'];
@@ -897,25 +877,6 @@ function renderProductOverview(product, containerId, tickets) {
       <div style="font-size:36px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:5px;">${k.subtitle}</div>
     </div>`).join('');
-
-  // ── SLA Breached status mini-cards ───────────────────────────────────────────
-  const breachedStatusCards = STATUS_CFG.map(s => {
-    const stix     = tickets.filter(r => r['Status'] === s.status);
-    if (!stix.length) return null;
-    const sBreach  = stix.filter(r => getSLAStatus(r) === 'red').length;
-    const pct      = stix.length > 0 ? Math.round(sBreach / stix.length * 100) : 0;
-    const clkFn    = `(function(){var t=(window._pOverviewTickets||{})['${pid}']||[];showTicketViewerPanel(t.filter(function(r){return r['Status']==='${s.status}'&&getSLAStatus(r)==='red'}),'🔴 SLA Breached — ${s.label}','#ef4444')})()`;
-    return `<div onclick="${clkFn}"
-      style="background:#ef444408;border:1.5px solid #ef444433;border-top:3px solid ${s.color};border-radius:12px;padding:14px 16px;cursor:pointer;transition:box-shadow .15s;min-width:130px;flex:1;"
-      onmouseover="this.style.boxShadow='0 4px 16px #ef444422'" onmouseout="this.style.boxShadow='none'">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
-        <span style="width:7px;height:7px;border-radius:50%;background:${s.color};flex-shrink:0;display:inline-block;"></span>
-        <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.label}</span>
-      </div>
-      <div style="font-size:26px;font-weight:700;color:#ef4444;line-height:1;">${sBreach}</div>
-      <div style="font-size:10px;color:var(--muted);margin-top:4px;">${stix.length} total · ${pct}% breached</div>
-    </div>`;
-  }).filter(Boolean).join('');
 
   // ── Pendency & Breachometer by Priority rows ──────────────────────────────────
   const prioRows = PRIO_CFG.map(p => {
@@ -1041,9 +1002,12 @@ function renderProductOverview(product, containerId, tickets) {
       <!-- KPI Cards -->
       <div style="display:flex;gap:14px;margin-bottom:24px;flex-wrap:wrap;">${kpiCards}</div>
 
-      <!-- SLA Breached by Status Mini-Cards -->
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);margin-bottom:10px;">🔴 SLA Breached Tickets by Status</div>
-      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px;">${breachedStatusCards}</div>
+      <!-- Priority-wise Daily Open+SLA-Breached Trend Chart -->
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);margin-bottom:14px;">📊 Open &amp; SLA Breached by Priority — Day by Day</div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin-bottom:24px;">
+        <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">Tickets open &amp; SLA breached at end of each day · Freshdesk targets: Urgent &gt;6h · High &gt;1d · Medium &gt;5d · Low &gt;15d</div>
+        <div style="position:relative;height:240px;"><canvas id="chart-breach-trend-${pid}"></canvas></div>
+      </div>
 
       <!-- Pendency & Breachometer by Priority -->
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);margin-bottom:14px;">Pendency &amp; Breachometer by Priority</div>
@@ -1104,6 +1068,85 @@ function renderProductOverview(product, containerId, tickets) {
         ${actions.map(a => `<div style="font-size:13px;color:var(--text);line-height:1.6;">${a}</div>`).join('')}
       </div>
     </div>`;
+
+  // ── Priority-wise daily breach trend chart ────────────────────────────────────
+  (function() {
+    const canvas = document.getElementById(`chart-breach-trend-${pid}`);
+    if (!canvas) return;
+    const allTix = (window._allTicketsData || []).filter(r => r['Product (Studio/Vini)'] === product);
+    const FD_SLA_HOURS = { Urgent: 6, High: 24, Medium: 120, Low: 360 };
+    const PRIO_COLORS  = { Urgent: '#ef4444', High: '#f97316', Medium: '#3b82f6', Low: '#22c55e' };
+    const PRIOS        = ['Urgent', 'High', 'Medium', 'Low'];
+    const now          = new Date();
+    const labels       = [];
+    const trendData    = { Urgent: [], High: [], Medium: [], Low: [] };
+
+    for (let i = 13; i >= 1; i--) {
+      const d = new Date(now);
+      d.setDate(d.getDate() - i);
+      d.setHours(23, 59, 59, 999);
+      labels.push(d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }));
+
+      for (const p of PRIOS) {
+        const count = allTix.filter(t => {
+          const created = t['Created time'] ? new Date(t['Created time']) : null;
+          if (!created || created > d) return false;
+          const resolvedAt = t['Resolved at'] ? new Date(t['Resolved at']) : null;
+          if (resolvedAt && resolvedAt <= d) return false; // resolved before end of day
+          if (t['Priority'] !== p) return false;
+          const dueBy = t['Due by'] ? new Date(t['Due by']) : null;
+          if (dueBy) return dueBy < d;
+          return (d - created) / 3_600_000 > (FD_SLA_HOURS[p] ?? 24);
+        }).length;
+        trendData[p].push(count);
+      }
+    }
+
+    const existingChart = Chart.getChart(canvas);
+    if (existingChart) existingChart.destroy();
+
+    new Chart(canvas, {
+      type: 'line',
+      plugins: [ChartDataLabels],
+      data: {
+        labels,
+        datasets: PRIOS.map((p, i) => ({
+          label: p,
+          data: trendData[p],
+          borderColor: PRIO_COLORS[p],
+          backgroundColor: PRIO_COLORS[p] + '18',
+          borderWidth: 2.5,
+          pointBackgroundColor: PRIO_COLORS[p],
+          pointRadius: 5,
+          pointHoverRadius: 8,
+          tension: 0.35,
+          fill: false,
+          datalabels: {
+            align: (p === 'Medium' || p === 'Low') ? 'bottom' : 'top',
+            anchor: (p === 'Medium' || p === 'Low') ? 'end' : 'top',
+            color: PRIO_COLORS[p],
+            font: { size: 11, weight: '700' },
+            formatter: v => v === 0 ? '' : v,
+          }
+        }))
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        layout: { padding: { top: 20, bottom: 16 } },
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: true, position: 'top', labels: { font: { size: 12, weight: '600' }, padding: 16 } },
+          tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} breached` } },
+          datalabels: { display: true }
+        },
+        scales: {
+          x: { grid: { color: '#f1f5f9' }, ticks: { font: { size: 11 }, color: '#64748b' } },
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { stepSize: 5, font: { size: 12 }, color: '#64748b' }, title: { display: true, text: 'Open & Breached Tickets', color: '#94a3b8', font: { size: 12 } } }
+        }
+      }
+    });
+  })();
 
   // ── Append VoC table via DOM ──────────────────────────────────────────────────
   const vocSection = document.getElementById(`voc-section-${pid}`);
@@ -2430,109 +2473,8 @@ function renderSummaryTab(allTickets) {
     </div>`;
 }
 
-// ─── SILENT BACKGROUND REFRESH (no loading screen) ───────────────────────────
-const AUTO_REFRESH_INTERVAL = 2 * 60 * 1000; // 2 minutes
-let _autoRefreshTimer   = null;
-let _countdownTimer     = null;
-let _nextRefreshAt      = null;
-let _isSilentRefreshing = false;
-
-function setSyncDot(state) {
-  const dot   = document.getElementById('sync-dot');
-  const label = document.getElementById('sync-label');
-  if (!dot) return;
-  if (state === 'syncing') {
-    dot.style.background   = '#f59e0b';
-    dot.style.animation    = 'pulse-dot 0.8s ease-in-out infinite';
-    if (label) label.innerHTML = '<em>syncing…</em>';
-  } else if (state === 'done') {
-    dot.style.background = '#10b981';
-    dot.style.animation  = '';
-    setTimeout(()=>{ dot.style.background='var(--muted2)'; }, 2000);
-  } else {
-    dot.style.background = 'var(--muted2)';
-    dot.style.animation  = '';
-  }
-}
-
-function startCountdown() {
-  clearInterval(_countdownTimer);
-  _nextRefreshAt = Date.now() + AUTO_REFRESH_INTERVAL;
-  _countdownTimer = setInterval(() => {
-    const el = document.getElementById('sync-countdown');
-    if (!el) return;
-    if (_isSilentRefreshing) return;
-    const remaining = Math.max(0, _nextRefreshAt - Date.now());
-    const m = Math.floor(remaining / 60000);
-    const s = Math.floor((remaining % 60000) / 1000);
-    el.textContent = m + ':' + String(s).padStart(2,'0');
-    const lbl = document.getElementById('sync-label');
-    if (lbl && !_isSilentRefreshing) lbl.innerHTML = 'next sync in <span id="sync-countdown">' + el.textContent + '</span>';
-  }, 1000);
-}
-
-function silentRefresh() {
-  if (_isSilentRefreshing) return;
-  _isSilentRefreshing = true;
-  setSyncDot('syncing');
-  // Cache-bust with timestamp so Vercel serves fresh data
-  const url = FRESHDESK_API_URL + '?_t=' + Date.now();
-  fetch(url)
-    .then(r => { if (!r.ok) throw new Error('API ' + r.status); return r.json(); })
-    .then(data => {
-      window._allTicketsData = data;
-      const ALWAYS_OPEN = ['Waiting on third party','Pending on (CSM)(OB)'];
-      allData = data.filter(r => r['is_pending'] !== false || ALWAYS_OPEN.includes(r['Status']));
-      populateFilters();
-      renderAll();
-      document.getElementById('last-synced').textContent =
-        'Last synced: ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
-      setSyncDot('done');
-    })
-    .catch(() => setSyncDot('idle'))
-    .finally(() => {
-      _isSilentRefreshing = false;
-      startCountdown();
-      scheduleAutoRefresh();
-    });
-}
-
-function scheduleAutoRefresh() {
-  clearTimeout(_autoRefreshTimer);
-  _autoRefreshTimer = setTimeout(silentRefresh, AUTO_REFRESH_INTERVAL);
-}
-
-function manualRefresh() {
-  // Manual click: silent refresh immediately (no loading screen)
-  clearTimeout(_autoRefreshTimer);
-  clearInterval(_countdownTimer);
-  silentRefresh();
-}
-
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
-  // Add pulse animation for the sync dot
-  const style = document.createElement('style');
-  style.textContent = '@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.4)}}';
-  document.head.appendChild(style);
-
-  setTimeout(() => {
-    loadFromSheets();
-    // After initial load, kick off auto-refresh cycle
-    // We wait for loadFromSheets to finish before starting the timer
-    // so we hook into its completion via a one-time observer
-    const _origRender = window.renderAll;
-    let _booted = false;
-    window.renderAll = function() {
-      _origRender.apply(this, arguments);
-      if (!_booted) {
-        _booted = true;
-        startCountdown();
-        scheduleAutoRefresh();
-      }
-    };
-  }, 300);
-});
+document.addEventListener('DOMContentLoaded',()=>setTimeout(loadFromSheets,300));
 </script>
 </body>
 </html>
