@@ -1081,7 +1081,7 @@ function renderProductOverview(product, containerId, tickets) {
     const labels       = [];
     const trendData    = { Urgent: [], High: [], Medium: [], Low: [] };
 
-    for (let i = 13; i >= 1; i--) {
+    for (let i = 13; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
       d.setHours(23, 59, 59, 999);
