@@ -1089,14 +1089,13 @@ function renderProductOverview(product, containerId, tickets) {
 
       for (const p of PRIOS) {
         const count = allTix.filter(t => {
+          if (t['Priority'] !== p) return false;
           const created = t['Created time'] ? new Date(t['Created time']) : null;
           if (!created || created > d) return false;
           const resolvedAt = t['Resolved at'] ? new Date(t['Resolved at']) : null;
-          if (resolvedAt && resolvedAt <= d) return false; // resolved before end of day
-          if (t['Priority'] !== p) return false;
-          const dueBy = t['Due by'] ? new Date(t['Due by']) : null;
-          if (dueBy) return dueBy < d;
-          return (d - created) / 3_600_000 > (FD_SLA_HOURS[p] ?? 24);
+          if (resolvedAt && resolvedAt <= d) return false; // was resolved by end of this day
+          const ageHours = (d - created) / 3_600_000;
+          return ageHours > (FD_SLA_HOURS[p] ?? 24);
         }).length;
         trendData[p].push(count);
       }
