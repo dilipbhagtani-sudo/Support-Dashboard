@@ -31,7 +31,7 @@ const STATUS_LABELS = {
 };
 
 // Pending status codes (used for is_pending flag)
-const PENDING_STATUSES = new Set([2, 7, 15, 16, 17, 18, 19, 20]);
+const PENDING_STATUSES = new Set([2, 7, 10, 15, 16, 17, 18, 19, 20]);
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
 
@@ -199,6 +199,7 @@ function mapTicket(t, lookup = {}) {
     'Resolution status':        slaStatus(stats.resolved_at, t.due_by),
     'Resolution time (in hrs)': resHrs,
     'Due by':                   t.due_by || '',
+    'Ticket Type':              cf.cf_type_internalexternal || '',
     // Flag so the frontend can split pending vs. resolved tickets
     'is_pending':               PENDING_STATUSES.has(t.status),
   };
