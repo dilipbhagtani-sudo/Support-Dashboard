@@ -894,6 +894,25 @@ function renderProductOverview(product, containerId, tickets) {
       <div style="font-size:11px;color:var(--muted);margin-top:5px;">${k.subtitle}</div>
     </div>`).join('');
 
+  // ── SLA Breached status mini-cards ───────────────────────────────────────────
+  const breachedStatusCards = STATUS_CFG.map(s => {
+    const stix     = tickets.filter(r => r['Status'] === s.status);
+    if (!stix.length) return null;
+    const sBreach  = stix.filter(r => getSLAStatus(r) === 'red').length;
+    const pct      = stix.length > 0 ? Math.round(sBreach / stix.length * 100) : 0;
+    const clkFn    = `(function(){var t=(window._pOverviewTickets||{})['${pid}']||[];showTicketViewerPanel(t.filter(function(r){return r['Status']==='${s.status}'&&getSLAStatus(r)==='red'}),'🔴 SLA Breached — ${s.label}','#ef4444')})()`;
+    return `<div onclick="${clkFn}"
+      style="background:#ef444408;border:1.5px solid #ef444433;border-top:3px solid ${s.color};border-radius:12px;padding:14px 16px;cursor:pointer;transition:box-shadow .15s;min-width:130px;flex:1;"
+      onmouseover="this.style.boxShadow='0 4px 16px #ef444422'" onmouseout="this.style.boxShadow='none'">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <span style="width:7px;height:7px;border-radius:50%;background:${s.color};flex-shrink:0;display:inline-block;"></span>
+        <span style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${s.label}</span>
+      </div>
+      <div style="font-size:26px;font-weight:700;color:#ef4444;line-height:1;">${sBreach}</div>
+      <div style="font-size:10px;color:var(--muted);margin-top:4px;">${stix.length} total · ${pct}% breached</div>
+    </div>`;
+  }).filter(Boolean).join('');
+
   // ── Pendency & Breachometer by Priority rows ──────────────────────────────────
   const prioRows = PRIO_CFG.map(p => {
     const ptix    = tickets.filter(r => r['Priority'] === p.label);
@@ -1017,6 +1036,10 @@ function renderProductOverview(product, containerId, tickets) {
 
       <!-- KPI Cards -->
       <div style="display:flex;gap:14px;margin-bottom:24px;flex-wrap:wrap;">${kpiCards}</div>
+
+      <!-- SLA Breached by Status Mini-Cards -->
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);margin-bottom:10px;">🔴 SLA Breached Tickets by Status</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:24px;">${breachedStatusCards}</div>
 
       <!-- Pendency & Breachometer by Priority -->
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);margin-bottom:14px;">Pendency &amp; Breachometer by Priority</div>
