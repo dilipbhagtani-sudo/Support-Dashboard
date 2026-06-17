@@ -27,11 +27,10 @@ const STATUS_LABELS = {
   17: 'On Hold (Internal)',
   18: 'Pending at Creative',
   19: 'Pending at Production',
-  20: 'Pending on (CSM)(OB)',
 };
 
 // Pending status codes (used for is_pending flag)
-const PENDING_STATUSES = new Set([2, 7, 10, 15, 16, 17, 18, 19, 20]);
+const PENDING_STATUSES = new Set([2, 7, 15, 16, 17, 18, 19]);
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
 
@@ -198,6 +197,7 @@ function mapTicket(t, lookup = {}) {
     'Next response status':     slaStatus(stats.agent_responded_at, t.nr_due_by),
     'Resolution status':        slaStatus(stats.resolved_at, t.due_by),
     'Resolution time (in hrs)': resHrs,
+    'Due by':                   t.due_by || '',
     // Flag so the frontend can split pending vs. resolved tickets
     'is_pending':               PENDING_STATUSES.has(t.status),
   };
