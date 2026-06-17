@@ -315,7 +315,7 @@ const CATEGORIES = [
   { id:'onhold',     label:'PS On Hold',              color:'#64748b',
     filter: r => r['Status'] === 'On Hold (Internal)' },
   { id:'pendingcsm', label:'Pending on CSM/OB',       color:'#a855f7',
-    filter: r => r['Status'] === 'Pending on CSM/OB' },
+    filter: r => r['Status'] === 'Pending on (CSM)(OB)' },
 ];
 
 // ─── AGING BUCKETS ────────────────────────────────────────────────────────────
@@ -849,7 +849,7 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on CSM/OB',     status:'Pending on CSM/OB',     color:'#a855f7' },
+    { label:'Pending on CSM/OB',     status:'Pending on (CSM)(OB)',     color:'#a855f7' },
   ] : [
     { label:'PS Open',               status:'Open',                   color:'#ef4444' },
     { label:'L1 Pendency',           status:'Pending L1 (Technical)', color:'#8b5cf6' },
@@ -858,7 +858,7 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on CSM/OB',     status:'Pending on CSM/OB',     color:'#a855f7' },
+    { label:'Pending on CSM/OB',     status:'Pending on (CSM)(OB)',     color:'#a855f7' },
   ];
 
   const PRIOS = ['Urgent','High','Medium','Low'];
