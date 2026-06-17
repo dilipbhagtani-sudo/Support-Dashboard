@@ -220,8 +220,8 @@ module.exports = async function handler(req, res) {
     const [all, lookup] = await Promise.all([fetchAllTickets(), fetchEnterpriseLookup()]);
     const mapped = all.map(t => mapTicket(t, lookup));
 
-    // Cache for 5 minutes on Vercel Edge
-    res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60');
+    // Cache for 60 s on Vercel Edge (short TTL for near-real-time updates)
+    res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=30');
     return res.status(200).json(mapped);
   } catch (err) {
     console.error('Freshdesk fetch error:', err);
