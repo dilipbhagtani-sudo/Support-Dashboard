@@ -167,7 +167,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="header-meta">
         <span id="record-count">0</span> pending tickets &nbsp;·&nbsp;
         <span id="last-synced"></span>
-        <button class="refresh-btn" onclick="loadFromSheets()">↻ Refresh</button>
+        <button class="refresh-btn" onclick="manualRefresh()">↻ Refresh</button>
+        <span id="auto-sync-indicator" style="font-size:11px;color:var(--muted2);display:flex;align-items:center;gap:5px;">
+          <span id="sync-dot" style="width:7px;height:7px;border-radius:50%;background:var(--muted2);display:inline-block;transition:background .3s;"></span>
+          <span id="sync-label">next sync in <span id="sync-countdown">2:00</span></span>
+        </span>
       </div>
     </div>
     <div class="header-right">
@@ -2426,8 +2430,109 @@ function renderSummaryTab(allTickets) {
     </div>`;
 }
 
+// ─── SILENT BACKGROUND REFRESH (no loading screen) ───────────────────────────
+const AUTO_REFRESH_INTERVAL = 2 * 60 * 1000; // 2 minutes
+let _autoRefreshTimer   = null;
+let _countdownTimer     = null;
+let _nextRefreshAt      = null;
+let _isSilentRefreshing = false;
+
+function setSyncDot(state) {
+  const dot   = document.getElementById('sync-dot');
+  const label = document.getElementById('sync-label');
+  if (!dot) return;
+  if (state === 'syncing') {
+    dot.style.background   = '#f59e0b';
+    dot.style.animation    = 'pulse-dot 0.8s ease-in-out infinite';
+    if (label) label.innerHTML = '<em>syncing…</em>';
+  } else if (state === 'done') {
+    dot.style.background = '#10b981';
+    dot.style.animation  = '';
+    setTimeout(()=>{ dot.style.background='var(--muted2)'; }, 2000);
+  } else {
+    dot.style.background = 'var(--muted2)';
+    dot.style.animation  = '';
+  }
+}
+
+function startCountdown() {
+  clearInterval(_countdownTimer);
+  _nextRefreshAt = Date.now() + AUTO_REFRESH_INTERVAL;
+  _countdownTimer = setInterval(() => {
+    const el = document.getElementById('sync-countdown');
+    if (!el) return;
+    if (_isSilentRefreshing) return;
+    const remaining = Math.max(0, _nextRefreshAt - Date.now());
+    const m = Math.floor(remaining / 60000);
+    const s = Math.floor((remaining % 60000) / 1000);
+    el.textContent = m + ':' + String(s).padStart(2,'0');
+    const lbl = document.getElementById('sync-label');
+    if (lbl && !_isSilentRefreshing) lbl.innerHTML = 'next sync in <span id="sync-countdown">' + el.textContent + '</span>';
+  }, 1000);
+}
+
+function silentRefresh() {
+  if (_isSilentRefreshing) return;
+  _isSilentRefreshing = true;
+  setSyncDot('syncing');
+  // Cache-bust with timestamp so Vercel serves fresh data
+  const url = FRESHDESK_API_URL + '?_t=' + Date.now();
+  fetch(url)
+    .then(r => { if (!r.ok) throw new Error('API ' + r.status); return r.json(); })
+    .then(data => {
+      window._allTicketsData = data;
+      const ALWAYS_OPEN = ['Waiting on third party','Pending on (CSM)(OB)'];
+      allData = data.filter(r => r['is_pending'] !== false || ALWAYS_OPEN.includes(r['Status']));
+      populateFilters();
+      renderAll();
+      document.getElementById('last-synced').textContent =
+        'Last synced: ' + new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+      setSyncDot('done');
+    })
+    .catch(() => setSyncDot('idle'))
+    .finally(() => {
+      _isSilentRefreshing = false;
+      startCountdown();
+      scheduleAutoRefresh();
+    });
+}
+
+function scheduleAutoRefresh() {
+  clearTimeout(_autoRefreshTimer);
+  _autoRefreshTimer = setTimeout(silentRefresh, AUTO_REFRESH_INTERVAL);
+}
+
+function manualRefresh() {
+  // Manual click: silent refresh immediately (no loading screen)
+  clearTimeout(_autoRefreshTimer);
+  clearInterval(_countdownTimer);
+  silentRefresh();
+}
+
 // ─── BOOT ─────────────────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded',()=>setTimeout(loadFromSheets,300));
+document.addEventListener('DOMContentLoaded', () => {
+  // Add pulse animation for the sync dot
+  const style = document.createElement('style');
+  style.textContent = '@keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.4)}}';
+  document.head.appendChild(style);
+
+  setTimeout(() => {
+    loadFromSheets();
+    // After initial load, kick off auto-refresh cycle
+    // We wait for loadFromSheets to finish before starting the timer
+    // so we hook into its completion via a one-time observer
+    const _origRender = window.renderAll;
+    let _booted = false;
+    window.renderAll = function() {
+      _origRender.apply(this, arguments);
+      if (!_booted) {
+        _booted = true;
+        startCountdown();
+        scheduleAutoRefresh();
+      }
+    };
+  }, 300);
+});
 </script>
 </body>
 </html>
