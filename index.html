@@ -1013,6 +1013,21 @@ function renderProductOverview(product, containerId, tickets) {
       <!-- KPI Cards -->
       <div style="display:flex;gap:14px;margin-bottom:24px;flex-wrap:wrap;">${kpiCards}</div>
 
+      <!-- Status Summary Pills -->
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">
+        ${STATUS_CFG.map(s => {
+          const stix = tickets.filter(r => r['Status'] === s.status);
+          if (!stix.length) return '';
+          const jiraCount = stix.filter(r => r['Jira'] && r['Jira'].trim()).length;
+          const jiraBadge = jiraCount > 0 ? ` <span style="font-size:10px;color:${s.color};opacity:0.7;">(${jiraCount} Jira)</span>` : '';
+          return `<div onclick="(function(){var t=(window._pOverviewTickets||{})['${pid}']||[];showTicketViewerPanel(t.filter(function(r){return r['Status']==='${s.status}'}),'${s.label} — ${product}','${s.color}');})()" style="display:inline-flex;align-items:center;gap:6px;background:${s.color}12;border:1.5px solid ${s.color}44;border-radius:999px;padding:5px 14px;cursor:pointer;transition:all .15s;" onmouseover="this.style.background='${s.color}22'" onmouseout="this.style.background='${s.color}12'">
+            <span style="width:7px;height:7px;border-radius:50%;background:${s.color};flex-shrink:0;display:inline-block;"></span>
+            <span style="font-size:12px;font-weight:500;color:var(--muted);">${s.label}:</span>
+            <span style="font-size:13px;font-weight:700;color:${s.color};">${stix.length}</span>${jiraBadge}
+          </div>`;
+        }).join('')}
+      </div>
+
       <!-- Priority-wise Daily Open+SLA-Breached Trend Chart -->
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--text);margin-bottom:14px;">📊 Open &amp; SLA Breached by Priority — Day by Day</div>
       <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px 20px;margin-bottom:24px;">
