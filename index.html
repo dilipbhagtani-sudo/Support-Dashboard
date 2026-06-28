@@ -201,6 +201,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <select class="filter-select" id="csm-select" onchange="renderAll()">
         <option value="all">All CSMs</option>
       </select>
+      <select class="filter-select" id="ob-select" onchange="renderAll()">
+        <option value="all">All OBs</option>
+      </select>
       <select class="filter-select" id="sla-select" onchange="onHeaderSLAChange()" style="min-width:152px;">
         <option value="all">All SLA Status</option>
         <option value="green">✅ Within SLA</option>
@@ -225,10 +228,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="production">Pending at Production <span class="tab-badge" id="badge-production">0</span></div>
     <div class="tab" data-tab="creative">Pending at Creative <span class="tab-badge" id="badge-creative">0</span></div>
     <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
-    <div class="tab" data-tab="pendingcsm">Pending on CSM/OB <span class="tab-badge" id="badge-pendingcsm">0</span></div>
+    <div class="tab" data-tab="pendingcs">Pending on CS <span class="tab-badge" id="badge-pendingcs">0</span></div>
+    <div class="tab" data-tab="pendingob">Pending on OB <span class="tab-badge" id="badge-pendingob">0</span></div>
+    <div class="tab" data-tab="pendingfinance">Pending on Finance <span class="tab-badge" id="badge-pendingfinance">0</span></div>
     <div class="tab" data-tab="alltickets">All Tickets <span class="tab-badge" id="badge-alltickets">0</span></div>
     <div class="tab" data-tab="enterprise">Enterprise <span class="tab-badge" id="badge-enterprise">0</span></div>
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
+    <div class="tab" data-tab="csmpendency">CSM/OB Pendency <span class="tab-badge" id="badge-csmpendency">0</span></div>
     <div class="tab" data-tab="summary">📊 Monthly Summary</div>
   </div>
 
@@ -288,10 +294,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-production"><div id="detail-production"></div></div>
   <div class="tab-content" id="tab-creative"><div id="detail-creative"></div></div>
   <div class="tab-content" id="tab-onhold"><div id="detail-onhold"></div></div>
-  <div class="tab-content" id="tab-pendingcsm"><div id="detail-pendingcsm"></div></div>
+  <div class="tab-content" id="tab-pendingcs"><div id="detail-pendingcs"></div></div>
+  <div class="tab-content" id="tab-pendingob"><div id="detail-pendingob"></div></div>
+  <div class="tab-content" id="tab-pendingfinance"><div id="detail-pendingfinance"></div></div>
   <div class="tab-content" id="tab-alltickets"><div id="detail-alltickets"></div></div>
   <div class="tab-content" id="tab-enterprise"><div id="detail-enterprise"></div></div>
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
+  <div class="tab-content" id="tab-csmpendency"><div id="detail-csmpendency"></div></div>
   <div class="tab-content" id="tab-summary"><div id="detail-summary"></div></div>
 
 </div>
@@ -320,8 +329,12 @@ const CATEGORIES = [
     filter: r => r['Status'] === 'Pending at Creative' },
   { id:'onhold',     label:'PS On Hold',              color:'#64748b',
     filter: r => r['Status'] === 'On Hold (Internal)' },
-  { id:'pendingcsm', label:'Pending on CSM/OB',       color:'#a855f7',
-    filter: r => r['Status'] === 'Pending on (CSM)(OB)' },
+  { id:'pendingcs', label:'Pending on CS',             color:'#a855f7',
+    filter: r => r['Status'] === 'Pending on CS' },
+  { id:'pendingob', label:'Pending on OB',             color:'#d946ef',
+    filter: r => r['Status'] === 'Pending on OB' },
+  { id:'pendingfinance', label:'Pending on Finance',   color:'#0891b2',
+    filter: r => r['Status'] === 'Pending on Finance' },
 ];
 
 // ─── AGING BUCKETS ────────────────────────────────────────────────────────────
@@ -545,6 +558,83 @@ function renderCsmTab(tickets) {
     </div>`;
 }
 
+// ─── CSM/OB PENDENCY TAB ────────────────────────────────────────────────────
+function _buildPendencyTable(tickets, groupByField, groupLabel, storeKey, color) {
+  if (!tickets.length) return '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">No tickets</div>';
+  var grpMap = {};
+  tickets.forEach(function(r) {
+    var name = (r[groupByField] || 'Unassigned').trim();
+    if (!grpMap[name]) grpMap[name] = { tickets: [], urgent: 0, high: 0 };
+    grpMap[name].tickets.push(r);
+    if (r['Priority'] === 'Urgent') grpMap[name].urgent++;
+    if (r['Priority'] === 'High') grpMap[name].high++;
+  });
+  var sorted = Object.entries(grpMap).sort(function(a, b) { return b[1].tickets.length - a[1].tickets.length; });
+  if (!window[storeKey]) window[storeKey] = {};
+  var rows = sorted.map(function(entry, i) {
+    var name = entry[0], data = entry[1];
+    var key = storeKey + '_' + i;
+    window[storeKey][key] = data;
+    var maxDays = data.tickets.length ? Math.max.apply(null, data.tickets.map(function(r) { return daysOpen(r) || 0; })) : 0;
+    var slaBreached = data.tickets.filter(function(r) { return getSLAStatus(r) === 'red'; }).length;
+    var enterprises = [];
+    data.tickets.forEach(function(r) { var e = r['Enterprise Name']; if (e && enterprises.indexOf(e) === -1) enterprises.push(e); });
+    return '<tr style="cursor:pointer;" onclick="toggleDrillRow(this.querySelector(\'button\'), \'' + storeKey + '\', \'' + key + '\')">' +
+      '<td style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--text);"><button class="drill-arrow" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-right:4px;">▾</button>' + name.replace(/</g,'&lt;') + '</td>' +
+      '<td style="padding:8px 12px;font-size:14px;font-weight:700;color:' + color + ';">' + data.tickets.length + '</td>' +
+      '<td style="padding:8px 12px;">' + (data.urgent ? '<span style="color:#ef4444;font-weight:700;">' + data.urgent + 'U</span> ' : '') + (data.high ? '<span style="color:#f59e0b;font-weight:600;">' + data.high + 'H</span>' : '') + '</td>' +
+      '<td style="padding:8px 12px;font-size:12px;color:var(--muted);">' + enterprises.length + ' enterprises</td>' +
+      '<td style="padding:8px 12px;font-size:12px;color:' + (maxDays > 14 ? 'var(--red)' : maxDays > 7 ? 'var(--amber)' : 'var(--green)') + ';">' + maxDays + 'd max</td>' +
+      '<td style="padding:8px 12px;">' + (slaBreached ? '<span style="color:#ef4444;font-size:12px;font-weight:600;">🔴 ' + slaBreached + ' breached</span>' : '<span style="color:#10b981;font-size:12px;">✅ OK</span>') + '</td>' +
+    '</tr>' +
+    '<tr class="drill-content-row" style="display:none;background:var(--surface2);">' +
+      '<td colspan="6" class="drill-content-cell" style="padding:4px 16px;"></td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="table-wrap" style="margin-bottom:16px;">' +
+    '<table class="ticket-table">' +
+      '<thead><tr>' +
+        '<th>' + groupLabel + '</th><th>Total</th><th>Priority</th><th>Enterprises</th><th>Max Age</th><th>SLA</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>' +
+  '</div>';
+}
+
+function renderCsmPendencyTab(allPending) {
+  var el = document.getElementById('detail-csmpendency');
+  var badge = document.getElementById('badge-csmpendency');
+  if (!el) return;
+
+  var csTickets = allPending.filter(function(r) { return r['Status'] === 'Pending on CS'; });
+  var obTickets = allPending.filter(function(r) { return r['Status'] === 'Pending on OB'; });
+  var total = csTickets.length + obTickets.length;
+
+  if (badge) badge.textContent = total;
+
+  if (!total) {
+    el.innerHTML = '<div class="empty-state"><span class="icon">👤</span><strong>No CS/OB pending tickets</strong></div>';
+    return;
+  }
+
+  el.innerHTML =
+    '<div class="summary-banner" style="margin-bottom:16px;">' +
+      '<div class="sb-main">' +
+        '<div class="sb-label">CSM/OB Pending Tickets</div>' +
+        '<div class="sb-value" style="color:var(--accent)">' + total + '</div>' +
+      '</div>' +
+      '<div class="sb-divider"></div>' +
+      '<div class="sb-breakdown">' +
+        '<div class="sb-pill" style="border-color:#a855f733;color:#a855f7;">Pending on CS: <strong>' + csTickets.length + '</strong></div>' +
+        '<div class="sb-pill" style="border-color:#d946ef33;color:#d946ef;">Pending on OB: <strong>' + obTickets.length + '</strong></div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#a855f7;margin-bottom:10px;">Pending on CS — by CSM Name</div>' +
+    _buildPendencyTable(csTickets, 'CSM Name', 'CSM Name', '_csPendData', '#a855f7') +
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#d946ef;margin-bottom:10px;">Pending on OB — by OB Name</div>' +
+    _buildPendencyTable(obTickets, 'OB Name', 'OB Name', '_obPendData', '#d946ef');
+}
+
 // ─── FRESHDESK FETCH ──────────────────────────────────────────────────────────
 function loadFromSheets(){  // keep name so refresh-btn onclick still works
   document.getElementById('load-screen').classList.remove('hidden');
@@ -620,6 +710,15 @@ function populateFilters(){
       const o=document.createElement('option');o.value=c;o.textContent=c;csmsel.appendChild(o);
     });
   }
+  // OB
+  const obsel=document.getElementById('ob-select');
+  if(obsel){
+    while(obsel.options.length>1)obsel.remove(1);
+    obsel.value='all';
+    [...new Set(allData.map(r=>(r['OB Name']||'').trim()).filter(Boolean))].sort().forEach(c=>{
+      const o=document.createElement('option');o.value=c;o.textContent=c;obsel.appendChild(o);
+    });
+  }
   // ENT Type
   const esel=document.getElementById('enttype-select');
   while(esel.options.length>1)esel.remove(1);
@@ -637,6 +736,7 @@ function getFiltered(){
   const cf=document.getElementById('category-select').value;
   const ef=document.getElementById('enttype-select').value;
   const csmf=(document.getElementById('csm-select')||{}).value||'all';
+  const obf=(document.getElementById('ob-select')||{}).value||'all';
   const sf=(document.getElementById('sla-select')||{}).value||'all';
   const ttf=(document.getElementById('ticket-type-select')||{}).value||'all';
   return allData.filter(r=>{
@@ -651,6 +751,7 @@ function getFiltered(){
     if(cf!=='all'&&(r['cf_categorytype']||r['Category/Type']||'').trim()!==cf)return false;
     if(ef!=='all'&&(r['ENT Type']||'').trim()!==ef)return false;
     if(csmf!=='all'&&(r['CSM Name']||r['CSM Name (updated)']||'').trim()!==csmf)return false;
+    if(obf!=='all'&&(r['OB Name']||'').trim()!==obf)return false;
     if(sf==='amber'){const s=getSLAStatus(r);if(s!=='amber'&&s!=='orange')return false;}
     else if(sf!=='all'&&getSLAStatus(r)!==sf)return false;
     if(window._vocL2Filter&&(r['VoC L2']||'').trim()!==window._vocL2Filter)return false;
@@ -667,12 +768,14 @@ function getFilteredAllTickets() {
   const cf  = document.getElementById('category-select').value;
   const ef  = document.getElementById('enttype-select').value;
   const csmf = (document.getElementById('csm-select') || {}).value || 'all';
+  const obf = (document.getElementById('ob-select') || {}).value || 'all';
   return all.filter(r => {
     if (pf  !== 'all' && r['Product (Studio/Vini)'] !== pf) return false;
     if (prf !== 'all' && r['Priority'] !== prf) return false;
     if (cf  !== 'all' && (r['cf_categorytype'] || r['Category/Type'] || '').trim() !== cf) return false;
     if (ef  !== 'all' && (r['ENT Type'] || '').trim() !== ef) return false;
     if (csmf !== 'all' && (r['CSM Name'] || r['CSM Name (updated)'] || '').trim() !== csmf) return false;
+    if (obf !== 'all' && (r['OB Name'] || '').trim() !== obf) return false;
     const ttf = (document.getElementById('ticket-type-select') || {}).value || 'all';
     if (ttf !== 'all') { const tt = (r['Ticket Type'] || '').toLowerCase(); if (tt !== ttf) return false; }
     return true;
@@ -808,6 +911,7 @@ function renderAll(){
   renderAllTicketsTab(base);
   renderEnterpriseTab(base);
   renderCsmTab(base);
+  renderCsmPendencyTab(base);
   renderSummaryTab(getFilteredAllTickets());
   renderProductOverview('Studio','detail-studio-overview', base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
   renderProductOverview('Vini',  'detail-vini-overview',   base.filter(r=>r['Product (Studio/Vini)']==='Vini'));
@@ -859,7 +963,9 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on CSM/OB',     status:'Pending on (CSM)(OB)',  color:'#a855f7' },
+    { label:'Pending on CS',         status:'Pending on CS',         color:'#a855f7' },
+    { label:'Pending on OB',        status:'Pending on OB',         color:'#d946ef' },
+    { label:'Pending on Finance',   status:'Pending on Finance',    color:'#0891b2' },
     { label:'Waiting on Third Party',status:'Waiting on third party', color:'#0ea5e9' },
   ] : [
     { label:'PS Open',               status:'Open',                   color:'#ef4444' },
@@ -869,7 +975,9 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on CSM/OB',     status:'Pending on (CSM)(OB)',     color:'#a855f7' },
+    { label:'Pending on CS',         status:'Pending on CS',         color:'#a855f7' },
+    { label:'Pending on OB',        status:'Pending on OB',         color:'#d946ef' },
+    { label:'Pending on Finance',   status:'Pending on Finance',    color:'#0891b2' },
   ];
 
   const PRIOS = ['Urgent','High','Medium','Low'];
