@@ -27,11 +27,13 @@ const STATUS_LABELS = {
   17: 'On Hold (Internal)',
   18: 'Pending at Creative',
   19: 'Pending at Production',
-  20: 'Pending on (CSM)(OB)',
+  20:   'Pending on CS',
+  9001: 'Pending on OB',
+  9002: 'Pending on Finance',
 };
 
 // Pending status codes (used for is_pending flag)
-const PENDING_STATUSES = new Set([2, 7, 10, 15, 16, 17, 18, 19, 20]);
+const PENDING_STATUSES = new Set([2, 7, 10, 15, 16, 17, 18, 19, 20, 9001, 9002]);
 
 const PRIORITY_LABELS = { 1: 'Low', 2: 'Medium', 3: 'High', 4: 'Urgent' };
 
@@ -108,19 +110,18 @@ function authHeader() {
 
 // ─── Fetch one page of tickets ───────────────────────────────────────────────
 async function fetchPage(page) {
-  // updated_since is required to go beyond Freshdesk's default 30-day window
   const url = `https://${DOMAIN}.freshdesk.com/api/v2/tickets?page=${page}&per_page=100&include=stats&updated_since=2026-03-01T00:00:00Z`;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000); // 8s per page
+  const timer = setTimeout(() => controller.abort(), 8000);
   try {
     const res = await fetch(url, { headers: { Authorization: authHeader() }, signal: controller.signal });
     clearTimeout(timer);
-    if (res.status === 429) return null; // rate limited — stop pagination gracefully
+    if (res.status === 429) return null;
     if (!res.ok) return [];
     return res.json();
   } catch {
     clearTimeout(timer);
-    return []; // timeout or network error — return empty, stop pagination
+    return [];
   }
 }
 
@@ -128,11 +129,10 @@ async function fetchPage(page) {
 async function fetchAllTickets() {
   const all = [];
   let page = 1;
-  while (page <= 30) { // cap at 30 pages (3000 tickets) as a safety limit
+  while (page <= 30) {
     const tickets = await fetchPage(page);
-    if (tickets === null) break; // rate limited
+    if (tickets === null) break;
     if (!Array.isArray(tickets) || tickets.length === 0) break;
-    // Keep all statuses — pending AND resolved/closed — so the Monthly Summary tab works
     tickets.forEach(t => all.push(t));
     if (tickets.length < 100) break;
     page++;
@@ -153,22 +153,18 @@ function mapTicket(t, lookup = {}) {
   const created = t.created_at || '';
   const month = created ? String(new Date(created).getMonth() + 1) : '';
 
-  // Resolution time in hours (if resolved)
   let resMins = null;
   if (stats.resolved_at && t.created_at) {
     resMins = (new Date(stats.resolved_at) - new Date(t.created_at)) / 60000;
   }
   const resHrs = resMins !== null ? (resMins / 60).toFixed(2) : '';
 
-  // Tags as space-separated string
   const tags = Array.isArray(t.tags) ? t.tags.join(' ') : (t.tags || '');
 
-  // Enrich from Google Sheets lookup via enterprise ID
   const entName = cf.cf_enterprise_name || '';
   const entId   = extractEnterpriseId(entName);
   const entInfo = lookup[entId] || {};
 
-  // Clean enterprise display name (remove trailing " - ID")
   const lastDash = entName.lastIndexOf(' - ');
   const entDisplayName = lastDash !== -1 ? entName.slice(0, lastDash).trim() : entName;
 
@@ -187,8 +183,9 @@ function mapTicket(t, lookup = {}) {
     'ENT Type':                 entInfo.segment || cf.cf_account_type || cf.cf_account_type1 || '',
     'Enterprise Name':          entDisplayName,
     'Enterprise ID':            entId,
-    'CSM Name':                 entInfo.csm || '',
-    'CSM Name (updated)':       entInfo.csm || '',
+    'CSM Name':                 cf.cf_csm_name || entInfo.csm || '',
+    'CSM Name (updated)':       cf.cf_csm_name || entInfo.csm || '',
+    'OB Name':                  cf.cf_ob || '',
     'Jira':                     cf.cf_jira_ticket || '',
     'Tags':                     tags,
     'Created time':             created,
@@ -200,14 +197,12 @@ function mapTicket(t, lookup = {}) {
     'Resolution time (in hrs)': resHrs,
     'Due by':                   t.due_by || '',
     'Ticket Type':              cf.cf_type_internalexternal || '',
-    // Flag so the frontend can split pending vs. resolved tickets
     'is_pending':               PENDING_STATUSES.has(t.status),
   };
 }
 
 // ─── Handler ─────────────────────────────────────────────────────────────────
 module.exports = async function handler(req, res) {
-  // CORS — allow the dashboard origin
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -218,11 +213,9 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Fetch Freshdesk tickets and Google Sheets lookup in parallel
     const [all, lookup] = await Promise.all([fetchAllTickets(), fetchEnterpriseLookup()]);
     const mapped = all.map(t => mapTicket(t, lookup));
 
-    // Cache for 5 minutes on Vercel Edge
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60');
     return res.status(200).json(mapped);
   } catch (err) {
