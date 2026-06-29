@@ -982,19 +982,38 @@ function renderProductOverview(product, containerId, tickets) {
 
   const PRIOS = ['Urgent','High','Medium','Low'];
 
-  // ── KPI Cards ─────────────────────────────────────────────────────────────────
-  const kpiCards = [
-    { label:'Total Pending', value:total,    color,           sla:'all',   subtitle:'Open + On-Hold tickets' },
-    { label:'SLA Breached',  value:breached, color:'#ef4444', sla:'red',   subtitle:'Overdue resolution'     },
-    { label:'At Risk',       value:atRisk,   color:'#f59e0b', sla:'amber', subtitle:'Breach within 24 hrs'   },
-    { label:'On Track',      value:onTrack,  color:'#10b981', sla:'green', subtitle:'Within SLA window'      },
-  ].map(k => `
+  // ── Type counts (Bug / Task / Enhancement) ─────────────────────────────────
+  const bugCount = typeCol ? tickets.filter(r => (r[typeCol]||'').toLowerCase().includes('bug')).length : 0;
+  const taskCount = typeCol ? tickets.filter(r => (r[typeCol]||'').toLowerCase().includes('task')).length : 0;
+  const enhCount = typeCol ? tickets.filter(r => { const v=(r[typeCol]||'').toLowerCase(); return v.includes('enhancement')||v.includes('feature')||v.includes('improvement'); }).length : 0;
+
+  // ── KPI Cards (with Bug/Task/Enhancement breakdown inside) ─────────────────
+  function _typeBreakdown(tix) {
+    if (!typeCol) return '';
+    const b = tix.filter(r => (r[typeCol]||'').toLowerCase().includes('bug')).length;
+    const t = tix.filter(r => (r[typeCol]||'').toLowerCase().includes('task')).length;
+    const e = tix.filter(r => { const v=(r[typeCol]||'').toLowerCase(); return v.includes('enhancement')||v.includes('feature')||v.includes('improvement'); }).length;
+    if (!b && !t && !e) return '';
+    return `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">` +
+      (b ? `<span style="font-size:10px;font-weight:600;background:#ef444418;color:#ef4444;border-radius:8px;padding:2px 7px;">🐛 ${b}</span>` : '') +
+      (t ? `<span style="font-size:10px;font-weight:600;background:#3b82f618;color:#3b82f6;border-radius:8px;padding:2px 7px;">📋 ${t}</span>` : '') +
+      (e ? `<span style="font-size:10px;font-weight:600;background:#8b5cf618;color:#8b5cf6;border-radius:8px;padding:2px 7px;">✨ ${e}</span>` : '') +
+    `</div>`;
+  }
+  const _kpiDefs = [
+    { label:'Total Pending', value:total,    color,           sla:'all',   subtitle:'Open + On-Hold tickets', tix:tickets },
+    { label:'SLA Breached',  value:breached, color:'#ef4444', sla:'red',   subtitle:'Overdue resolution',     tix:tickets.filter(r=>getSLAStatus(r)==='red') },
+    { label:'At Risk',       value:atRisk,   color:'#f59e0b', sla:'amber', subtitle:'Breach within 24 hrs',   tix:tickets.filter(r=>{const s=getSLAStatus(r);return s==='amber'||s==='orange';}) },
+    { label:'On Track',      value:onTrack,  color:'#10b981', sla:'green', subtitle:'Within SLA window',      tix:tickets.filter(r=>getSLAStatus(r)==='green') },
+  ];
+  const kpiCards = _kpiDefs.map(k => `
     <div onclick="filterFromProdOverview('${product}','${k.sla}')"
       style="background:${k.color}0d;border:1.5px solid ${k.color}33;border-radius:14px;padding:18px 22px;flex:1;min-width:140px;border-top:3px solid ${k.color};cursor:pointer;transition:box-shadow .15s;"
       onmouseover="this.style.boxShadow='0 4px 16px ${k.color}33'" onmouseout="this.style.boxShadow='none'">
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:${k.color};margin-bottom:8px;">${k.label}</div>
       <div style="font-size:36px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:5px;">${k.subtitle}</div>
+      ${_typeBreakdown(k.tix)}
     </div>`).join('');
 
   // ── Pendency & Breachometer by Priority rows ──────────────────────────────────
