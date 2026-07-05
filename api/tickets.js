@@ -108,6 +108,24 @@ function authHeader() {
   return 'Basic ' + Buffer.from(`${API_KEY}:X`).toString('base64');
 }
 
+// ─── Fetch agents list ───────────────────────────────────────────────────────
+async function fetchAgents() {
+  try {
+    const res = await fetch(`https://${DOMAIN}.freshdesk.com/api/v2/agents?per_page=100`, {
+      headers: { Authorization: authHeader() },
+    });
+    if (!res.ok) return {};
+    const agents = await res.json();
+    const map = {};
+    agents.forEach(a => {
+      map[a.id] = { name: a.contact?.name || '', email: a.contact?.email || '' };
+    });
+    return map;
+  } catch {
+    return {};
+  }
+}
+
 // ─── Fetch one page of tickets ───────────────────────────────────────────────
 async function fetchPage(page) {
   const url = `https://${DOMAIN}.freshdesk.com/api/v2/tickets?page=${page}&per_page=100&include=stats&updated_since=2026-03-01T00:00:00Z`;
@@ -147,7 +165,7 @@ function slaStatus(respondedAt, dueBy) {
 }
 
 // ─── Map a Freshdesk ticket → dashboard row ──────────────────────────────────
-function mapTicket(t, lookup = {}) {
+function mapTicket(t, lookup = {}, agentMap = {}) {
   const cf    = t.custom_fields || {};
   const stats = t.stats || {};
   const created = t.created_at || '';
@@ -186,6 +204,8 @@ function mapTicket(t, lookup = {}) {
     'CSM Name':                 cf.cf_csm_name || entInfo.csm || '',
     'CSM Name (updated)':       cf.cf_csm_name || entInfo.csm || '',
     'OB Name':                  cf.cf_ob || '',
+    'Agent Name':               agentMap[t.responder_id]?.name || '',
+    'Agent Email':              agentMap[t.responder_id]?.email || '',
     'Jira':                     cf.cf_jira_ticket || '',
     'Tags':                     tags,
     'Created time':             created,
@@ -213,8 +233,8 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const [all, lookup] = await Promise.all([fetchAllTickets(), fetchEnterpriseLookup()]);
-    const mapped = all.map(t => mapTicket(t, lookup));
+    const [all, lookup, agentMap] = await Promise.all([fetchAllTickets(), fetchEnterpriseLookup(), fetchAgents()]);
+    const mapped = all.map(t => mapTicket(t, lookup, agentMap));
 
     res.setHeader('Cache-Control', 's-maxage=300, stale-while-revalidate=60');
     return res.status(200).json(mapped);
