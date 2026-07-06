@@ -201,9 +201,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <select class="filter-select" id="csm-select" onchange="renderAll()">
         <option value="all">All CSMs</option>
       </select>
-      <select class="filter-select" id="ob-select" onchange="renderAll()">
-        <option value="all">All OBs</option>
-      </select>
       <select class="filter-select" id="sla-select" onchange="onHeaderSLAChange()" style="min-width:152px;">
         <option value="all">All SLA Status</option>
         <option value="green">✅ Within SLA</option>
@@ -230,12 +227,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
     <div class="tab" data-tab="pendingcs">Pending on CS <span class="tab-badge" id="badge-pendingcs">0</span></div>
     <div class="tab" data-tab="pendingob">Pending on OB <span class="tab-badge" id="badge-pendingob">0</span></div>
-    <div class="tab" data-tab="pendingfinance">Pending on Finance <span class="tab-badge" id="badge-pendingfinance">0</span></div>
     <div class="tab" data-tab="alltickets">All Tickets <span class="tab-badge" id="badge-alltickets">0</span></div>
     <div class="tab" data-tab="enterprise">Enterprise <span class="tab-badge" id="badge-enterprise">0</span></div>
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
-    <div class="tab" data-tab="csmpendency">CSM/OB Pendency <span class="tab-badge" id="badge-csmpendency">0</span></div>
     <div class="tab" data-tab="summary">📊 Monthly Summary</div>
+    <div class="tab" data-tab="slack-report">📱 Slack Report</div>
   </div>
 
   <!-- STUDIO OVERVIEW TAB -->
@@ -296,12 +292,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-onhold"><div id="detail-onhold"></div></div>
   <div class="tab-content" id="tab-pendingcs"><div id="detail-pendingcs"></div></div>
   <div class="tab-content" id="tab-pendingob"><div id="detail-pendingob"></div></div>
-  <div class="tab-content" id="tab-pendingfinance"><div id="detail-pendingfinance"></div></div>
   <div class="tab-content" id="tab-alltickets"><div id="detail-alltickets"></div></div>
   <div class="tab-content" id="tab-enterprise"><div id="detail-enterprise"></div></div>
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
-  <div class="tab-content" id="tab-csmpendency"><div id="detail-csmpendency"></div></div>
   <div class="tab-content" id="tab-summary"><div id="detail-summary"></div></div>
+  <div class="tab-content" id="tab-slack-report"><div id="detail-slack-report"></div></div>
 
 </div>
 
@@ -329,12 +324,10 @@ const CATEGORIES = [
     filter: r => r['Status'] === 'Pending at Creative' },
   { id:'onhold',     label:'PS On Hold',              color:'#64748b',
     filter: r => r['Status'] === 'On Hold (Internal)' },
-  { id:'pendingcs', label:'Pending on CS',             color:'#a855f7',
+  { id:'pendingcs', label:'Pending on CS',       color:'#a855f7',
     filter: r => r['Status'] === 'Pending on CS' },
-  { id:'pendingob', label:'Pending on OB',             color:'#d946ef',
+  { id:'pendingob', label:'Pending on OB',       color:'#d946ef',
     filter: r => r['Status'] === 'Pending on OB' },
-  { id:'pendingfinance', label:'Pending on Finance',   color:'#0891b2',
-    filter: r => r['Status'] === 'Pending on Finance' },
 ];
 
 // ─── AGING BUCKETS ────────────────────────────────────────────────────────────
@@ -558,83 +551,6 @@ function renderCsmTab(tickets) {
     </div>`;
 }
 
-// ─── CSM/OB PENDENCY TAB ────────────────────────────────────────────────────
-function _buildPendencyTable(tickets, groupByField, groupLabel, storeKey, color) {
-  if (!tickets.length) return '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">No tickets</div>';
-  var grpMap = {};
-  tickets.forEach(function(r) {
-    var name = (r[groupByField] || 'Unassigned').trim();
-    if (!grpMap[name]) grpMap[name] = { tickets: [], urgent: 0, high: 0 };
-    grpMap[name].tickets.push(r);
-    if (r['Priority'] === 'Urgent') grpMap[name].urgent++;
-    if (r['Priority'] === 'High') grpMap[name].high++;
-  });
-  var sorted = Object.entries(grpMap).sort(function(a, b) { return b[1].tickets.length - a[1].tickets.length; });
-  if (!window[storeKey]) window[storeKey] = {};
-  var rows = sorted.map(function(entry, i) {
-    var name = entry[0], data = entry[1];
-    var key = storeKey + '_' + i;
-    window[storeKey][key] = data;
-    var maxDays = data.tickets.length ? Math.max.apply(null, data.tickets.map(function(r) { return daysOpen(r) || 0; })) : 0;
-    var slaBreached = data.tickets.filter(function(r) { return getSLAStatus(r) === 'red'; }).length;
-    var enterprises = [];
-    data.tickets.forEach(function(r) { var e = r['Enterprise Name']; if (e && enterprises.indexOf(e) === -1) enterprises.push(e); });
-    return '<tr style="cursor:pointer;" onclick="toggleDrillRow(this.querySelector(\'button\'), \'' + storeKey + '\', \'' + key + '\')">' +
-      '<td style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--text);"><button class="drill-arrow" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-right:4px;">▾</button>' + name.replace(/</g,'&lt;') + '</td>' +
-      '<td style="padding:8px 12px;font-size:14px;font-weight:700;color:' + color + ';">' + data.tickets.length + '</td>' +
-      '<td style="padding:8px 12px;">' + (data.urgent ? '<span style="color:#ef4444;font-weight:700;">' + data.urgent + 'U</span> ' : '') + (data.high ? '<span style="color:#f59e0b;font-weight:600;">' + data.high + 'H</span>' : '') + '</td>' +
-      '<td style="padding:8px 12px;font-size:12px;color:var(--muted);">' + enterprises.length + ' enterprises</td>' +
-      '<td style="padding:8px 12px;font-size:12px;color:' + (maxDays > 14 ? 'var(--red)' : maxDays > 7 ? 'var(--amber)' : 'var(--green)') + ';">' + maxDays + 'd max</td>' +
-      '<td style="padding:8px 12px;">' + (slaBreached ? '<span style="color:#ef4444;font-size:12px;font-weight:600;">🔴 ' + slaBreached + ' breached</span>' : '<span style="color:#10b981;font-size:12px;">✅ OK</span>') + '</td>' +
-    '</tr>' +
-    '<tr class="drill-content-row" style="display:none;background:var(--surface2);">' +
-      '<td colspan="6" class="drill-content-cell" style="padding:4px 16px;"></td>' +
-    '</tr>';
-  }).join('');
-  return '<div class="table-wrap" style="margin-bottom:16px;">' +
-    '<table class="ticket-table">' +
-      '<thead><tr>' +
-        '<th>' + groupLabel + '</th><th>Total</th><th>Priority</th><th>Enterprises</th><th>Max Age</th><th>SLA</th>' +
-      '</tr></thead>' +
-      '<tbody>' + rows + '</tbody>' +
-    '</table>' +
-  '</div>';
-}
-
-function renderCsmPendencyTab(allPending) {
-  var el = document.getElementById('detail-csmpendency');
-  var badge = document.getElementById('badge-csmpendency');
-  if (!el) return;
-
-  var csTickets = allPending.filter(function(r) { return r['Status'] === 'Pending on CS'; });
-  var obTickets = allPending.filter(function(r) { return r['Status'] === 'Pending on OB'; });
-  var total = csTickets.length + obTickets.length;
-
-  if (badge) badge.textContent = total;
-
-  if (!total) {
-    el.innerHTML = '<div class="empty-state"><span class="icon">👤</span><strong>No CS/OB pending tickets</strong></div>';
-    return;
-  }
-
-  el.innerHTML =
-    '<div class="summary-banner" style="margin-bottom:16px;">' +
-      '<div class="sb-main">' +
-        '<div class="sb-label">CSM/OB Pending Tickets</div>' +
-        '<div class="sb-value" style="color:var(--accent)">' + total + '</div>' +
-      '</div>' +
-      '<div class="sb-divider"></div>' +
-      '<div class="sb-breakdown">' +
-        '<div class="sb-pill" style="border-color:#a855f733;color:#a855f7;">Pending on CS: <strong>' + csTickets.length + '</strong></div>' +
-        '<div class="sb-pill" style="border-color:#d946ef33;color:#d946ef;">Pending on OB: <strong>' + obTickets.length + '</strong></div>' +
-      '</div>' +
-    '</div>' +
-    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#a855f7;margin-bottom:10px;">Pending on CS — by CSM Name</div>' +
-    _buildPendencyTable(csTickets, 'CSM Name', 'CSM Name', '_csPendData', '#a855f7') +
-    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#d946ef;margin-bottom:10px;">Pending on OB — by OB Name</div>' +
-    _buildPendencyTable(obTickets, 'OB Name', 'OB Name', '_obPendData', '#d946ef');
-}
-
 // ─── FRESHDESK FETCH ──────────────────────────────────────────────────────────
 function loadFromSheets(){  // keep name so refresh-btn onclick still works
   document.getElementById('load-screen').classList.remove('hidden');
@@ -710,15 +626,6 @@ function populateFilters(){
       const o=document.createElement('option');o.value=c;o.textContent=c;csmsel.appendChild(o);
     });
   }
-  // OB
-  const obsel=document.getElementById('ob-select');
-  if(obsel){
-    while(obsel.options.length>1)obsel.remove(1);
-    obsel.value='all';
-    [...new Set(allData.map(r=>(r['OB Name']||'').trim()).filter(Boolean))].sort().forEach(c=>{
-      const o=document.createElement('option');o.value=c;o.textContent=c;obsel.appendChild(o);
-    });
-  }
   // ENT Type
   const esel=document.getElementById('enttype-select');
   while(esel.options.length>1)esel.remove(1);
@@ -736,7 +643,6 @@ function getFiltered(){
   const cf=document.getElementById('category-select').value;
   const ef=document.getElementById('enttype-select').value;
   const csmf=(document.getElementById('csm-select')||{}).value||'all';
-  const obf=(document.getElementById('ob-select')||{}).value||'all';
   const sf=(document.getElementById('sla-select')||{}).value||'all';
   const ttf=(document.getElementById('ticket-type-select')||{}).value||'all';
   return allData.filter(r=>{
@@ -751,7 +657,6 @@ function getFiltered(){
     if(cf!=='all'&&(r['cf_categorytype']||r['Category/Type']||'').trim()!==cf)return false;
     if(ef!=='all'&&(r['ENT Type']||'').trim()!==ef)return false;
     if(csmf!=='all'&&(r['CSM Name']||r['CSM Name (updated)']||'').trim()!==csmf)return false;
-    if(obf!=='all'&&(r['OB Name']||'').trim()!==obf)return false;
     if(sf==='amber'){const s=getSLAStatus(r);if(s!=='amber'&&s!=='orange')return false;}
     else if(sf!=='all'&&getSLAStatus(r)!==sf)return false;
     if(window._vocL2Filter&&(r['VoC L2']||'').trim()!==window._vocL2Filter)return false;
@@ -768,14 +673,12 @@ function getFilteredAllTickets() {
   const cf  = document.getElementById('category-select').value;
   const ef  = document.getElementById('enttype-select').value;
   const csmf = (document.getElementById('csm-select') || {}).value || 'all';
-  const obf = (document.getElementById('ob-select') || {}).value || 'all';
   return all.filter(r => {
     if (pf  !== 'all' && r['Product (Studio/Vini)'] !== pf) return false;
     if (prf !== 'all' && r['Priority'] !== prf) return false;
     if (cf  !== 'all' && (r['cf_categorytype'] || r['Category/Type'] || '').trim() !== cf) return false;
     if (ef  !== 'all' && (r['ENT Type'] || '').trim() !== ef) return false;
     if (csmf !== 'all' && (r['CSM Name'] || r['CSM Name (updated)'] || '').trim() !== csmf) return false;
-    if (obf !== 'all' && (r['OB Name'] || '').trim() !== obf) return false;
     const ttf = (document.getElementById('ticket-type-select') || {}).value || 'all';
     if (ttf !== 'all') { const tt = (r['Ticket Type'] || '').toLowerCase(); if (tt !== ttf) return false; }
     return true;
@@ -911,8 +814,8 @@ function renderAll(){
   renderAllTicketsTab(base);
   renderEnterpriseTab(base);
   renderCsmTab(base);
-  renderCsmPendencyTab(base);
   renderSummaryTab(getFilteredAllTickets());
+  renderSlackReport(getFilteredAllTickets());
   renderProductOverview('Studio','detail-studio-overview', base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
   renderProductOverview('Vini',  'detail-vini-overview',   base.filter(r=>r['Product (Studio/Vini)']==='Vini'));
 }
@@ -963,9 +866,8 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on CS',         status:'Pending on CS',         color:'#a855f7' },
-    { label:'Pending on OB',        status:'Pending on OB',         color:'#d946ef' },
-    { label:'Pending on Finance',   status:'Pending on Finance',    color:'#0891b2' },
+    { label:'Pending on CS',          status:'Pending on CS',         color:'#a855f7' },
+    { label:'Pending on OB',          status:'Pending on OB',         color:'#d946ef' },
     { label:'Waiting on Third Party',status:'Waiting on third party', color:'#0ea5e9' },
   ] : [
     { label:'PS Open',               status:'Open',                   color:'#ef4444' },
@@ -975,45 +877,25 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on CS',         status:'Pending on CS',         color:'#a855f7' },
-    { label:'Pending on OB',        status:'Pending on OB',         color:'#d946ef' },
-    { label:'Pending on Finance',   status:'Pending on Finance',    color:'#0891b2' },
+    { label:'Pending on CS',          status:'Pending on CS',         color:'#a855f7' },
+    { label:'Pending on OB',          status:'Pending on OB',         color:'#d946ef' },
   ];
 
   const PRIOS = ['Urgent','High','Medium','Low'];
 
-  // ── Type counts (Bug / Task / Enhancement) ─────────────────────────────────
-  const bugCount = typeCol ? tickets.filter(r => (r[typeCol]||'').toLowerCase().includes('bug')).length : 0;
-  const taskCount = typeCol ? tickets.filter(r => (r[typeCol]||'').toLowerCase().includes('task')).length : 0;
-  const enhCount = typeCol ? tickets.filter(r => { const v=(r[typeCol]||'').toLowerCase(); return v.includes('enhancement')||v.includes('feature')||v.includes('improvement'); }).length : 0;
-
-  // ── KPI Cards (with Bug/Task/Enhancement breakdown inside) ─────────────────
-  function _typeBreakdown(tix) {
-    if (!typeCol) return '';
-    const b = tix.filter(r => (r[typeCol]||'').toLowerCase().includes('bug')).length;
-    const t = tix.filter(r => (r[typeCol]||'').toLowerCase().includes('task')).length;
-    const e = tix.filter(r => { const v=(r[typeCol]||'').toLowerCase(); return v.includes('enhancement')||v.includes('feature')||v.includes('improvement'); }).length;
-    if (!b && !t && !e) return '';
-    return `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">` +
-      (b ? `<span style="font-size:10px;font-weight:600;background:#ef444418;color:#ef4444;border-radius:8px;padding:2px 7px;">🐛 ${b}</span>` : '') +
-      (t ? `<span style="font-size:10px;font-weight:600;background:#3b82f618;color:#3b82f6;border-radius:8px;padding:2px 7px;">📋 ${t}</span>` : '') +
-      (e ? `<span style="font-size:10px;font-weight:600;background:#8b5cf618;color:#8b5cf6;border-radius:8px;padding:2px 7px;">✨ ${e}</span>` : '') +
-    `</div>`;
-  }
-  const _kpiDefs = [
-    { label:'Total Pending', value:total,    color,           sla:'all',   subtitle:'Open + On-Hold tickets', tix:tickets },
-    { label:'SLA Breached',  value:breached, color:'#ef4444', sla:'red',   subtitle:'Overdue resolution',     tix:tickets.filter(r=>getSLAStatus(r)==='red') },
-    { label:'At Risk',       value:atRisk,   color:'#f59e0b', sla:'amber', subtitle:'Breach within 24 hrs',   tix:tickets.filter(r=>{const s=getSLAStatus(r);return s==='amber'||s==='orange';}) },
-    { label:'On Track',      value:onTrack,  color:'#10b981', sla:'green', subtitle:'Within SLA window',      tix:tickets.filter(r=>getSLAStatus(r)==='green') },
-  ];
-  const kpiCards = _kpiDefs.map(k => `
+  // ── KPI Cards ─────────────────────────────────────────────────────────────────
+  const kpiCards = [
+    { label:'Total Pending', value:total,    color,           sla:'all',   subtitle:'Open + On-Hold tickets' },
+    { label:'SLA Breached',  value:breached, color:'#ef4444', sla:'red',   subtitle:'Overdue resolution'     },
+    { label:'At Risk',       value:atRisk,   color:'#f59e0b', sla:'amber', subtitle:'Breach within 24 hrs'   },
+    { label:'On Track',      value:onTrack,  color:'#10b981', sla:'green', subtitle:'Within SLA window'      },
+  ].map(k => `
     <div onclick="filterFromProdOverview('${product}','${k.sla}')"
       style="background:${k.color}0d;border:1.5px solid ${k.color}33;border-radius:14px;padding:18px 22px;flex:1;min-width:140px;border-top:3px solid ${k.color};cursor:pointer;transition:box-shadow .15s;"
       onmouseover="this.style.boxShadow='0 4px 16px ${k.color}33'" onmouseout="this.style.boxShadow='none'">
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:${k.color};margin-bottom:8px;">${k.label}</div>
       <div style="font-size:36px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:5px;">${k.subtitle}</div>
-      ${_typeBreakdown(k.tix)}
     </div>`).join('');
 
   // ── Pendency & Breachometer by Priority rows ──────────────────────────────────
@@ -2623,6 +2505,169 @@ function renderSummaryTab(allTickets) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
         ${buildMonthCard(lastMonth, false)}
         ${buildMonthCard(thisMonth, true)}
+      </div>
+    </div>`;
+}
+
+// ─── SLACK REPORT ─────────────────────────────────────────────────────────────
+function renderSlackReport(allTickets) {
+  const el = document.getElementById('detail-slack-report');
+  if (!el) return;
+
+  const now = new Date();
+  const thisM = { y: now.getFullYear(), m: now.getMonth() };
+  const lastMDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastM = { y: lastMDate.getFullYear(), m: lastMDate.getMonth() };
+  const l2lMDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+  const l2lM = { y: l2lMDate.getFullYear(), m: l2lMDate.getMonth() };
+
+  const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  const pending = allTickets.filter(r => r['is_pending']);
+  const studioP = pending.filter(r => r['Product (Studio/Vini)'] === 'Studio');
+  const viniP   = pending.filter(r => r['Product (Studio/Vini)'] === 'Vini');
+
+  // Card 1 — Unresolved
+  const totalUnresolved  = pending.length;
+  const studioUnresolved = studioP.length;
+  const viniUnresolved   = viniP.length;
+
+  // Card 2 — Out of SLA (all priorities)
+  const outSLA       = pending.filter(r => getSLAStatus(r) === 'red');
+  const studioOutSLA = studioP.filter(r => getSLAStatus(r) === 'red');
+  const viniOutSLA   = viniP.filter(r => getSLAStatus(r) === 'red');
+
+  // Card 3 — Out of SLA Urgent + High only
+  const urgHighBreached = pending.filter(r => getSLAStatus(r) === 'red' && (r['Priority'] === 'Urgent' || r['Priority'] === 'High'));
+  const studioUH = studioP.filter(r => getSLAStatus(r) === 'red' && (r['Priority'] === 'Urgent' || r['Priority'] === 'High'));
+  const viniUH   = viniP.filter(r => getSLAStatus(r) === 'red' && (r['Priority'] === 'Urgent' || r['Priority'] === 'High'));
+
+  // Card 4 — SLA Adherence MTD (resolved tickets)
+  function slaAdherence(ym) {
+    const resolved = allTickets.filter(r => {
+      const ra = r['Resolved at']; if (!ra) return false;
+      const d = new Date(ra); if (isNaN(d)) return false;
+      return d.getFullYear() === ym.y && d.getMonth() === ym.m;
+    });
+    if (!resolved.length) return { rate: null, total: 0 };
+    const within = resolved.filter(r => (r['Resolution status'] || '').toLowerCase().includes('within'));
+    return { rate: Math.round(within.length / resolved.length * 100), total: resolved.length };
+  }
+  const mtd  = slaAdherence(thisM);
+  const lm   = slaAdherence(lastM);
+  const l2lm = slaAdherence(l2lM);
+
+  // Top 5 oldest — Studio & Vini
+  function top5Oldest(tickets) {
+    return [...tickets]
+      .filter(r => daysOpen(r) !== null)
+      .sort((a, b) => (daysOpen(b) ?? 0) - (daysOpen(a) ?? 0))
+      .slice(0, 5);
+  }
+  const studioOldest = top5Oldest(studioP);
+  const viniOldest   = top5Oldest(viniP);
+
+  function dependentName(r) {
+    if (r['Status'] === 'Pending on CS') return r['CSM Name'] || r['CSM Name (updated)'] || '—';
+    if (r['Status'] === 'Pending on OB') return r['OB Name'] || '—';
+    if (r['Status'] === 'Waiting on Product') return 'Product Team';
+    if (r['Status'] === 'Waiting on third party') return 'Third Party';
+    if (r['Status'] === 'Pending L1 (Technical)') return 'L1 Tech';
+    if (r['Status'] === 'Pending L2 (Technical)') return 'L2 Tech';
+    return r['Status'] || '—';
+  }
+
+  function oldestRows(tickets) {
+    if (!tickets.length) return `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px;">No tickets</div>`;
+    return tickets.map((r, i) => {
+      const d = daysOpen(r) ?? 0;
+      const ageColor = d > 30 ? '#ef4444' : d > 14 ? '#f97316' : d > 7 ? '#f59e0b' : '#10b981';
+      const dep = dependentName(r);
+      const subj = (r['Subject'] || '—').slice(0, 45);
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);${i === tickets.length-1 ? 'border-bottom:none;' : ''}">
+        <div style="font-size:20px;font-weight:800;color:var(--border2);min-width:24px;text-align:center;">${i+1}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
+            <a href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank" style="font-size:12px;font-weight:700;color:var(--accent);text-decoration:none;">#${r['Ticket ID']}</a>
+            ${prioBadge(r['Priority'])}
+          </div>
+          <div style="font-size:12px;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${subj.replace(/</g,'&lt;')}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px;">Dependent: <strong style="color:var(--text);">${dep}</strong></div>
+        </div>
+        <div style="text-align:right;flex-shrink:0;">
+          <div style="font-size:22px;font-weight:800;color:${ageColor};line-height:1;">${d}d</div>
+          <div style="font-size:10px;color:var(--muted);">old</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  function card(label, value, sub, color, icon) {
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;">
+      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${color};"></div>
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">${icon} ${label}</div>
+      <div style="font-size:48px;font-weight:800;color:${color};line-height:1;margin-bottom:8px;">${value}</div>
+      <div style="font-size:12px;color:var(--muted);">${sub}</div>
+    </div>`;
+  }
+
+  const dateStr = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
+
+  el.innerHTML = `
+    <div style="max-width:800px;margin:0 auto;">
+      <!-- Header -->
+      <div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:16px;padding:22px 28px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+        <div>
+          <div style="font-size:20px;font-weight:800;color:#fff;">📱 Daily Slack Report</div>
+          <div style="font-size:13px;color:rgba(255,255,255,.55);margin-top:3px;">${dateStr} · Support Pendency Summary</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <span style="background:rgba(255,255,255,.15);color:#fff;border-radius:20px;padding:4px 14px;font-size:12px;font-weight:600;">Studio + Vini</span>
+        </div>
+      </div>
+
+      <!-- Cards row 1 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
+        ${card('Unresolved Tickets', totalUnresolved,
+          `Studio <strong style="color:var(--text);">${studioUnresolved}</strong> &nbsp;·&nbsp; Vini <strong style="color:var(--text);">${viniUnresolved}</strong>`,
+          '#3b82f6', '🎫')}
+        ${card('Out of SLA', outSLA.length,
+          `Studio <strong style="color:#ef4444;">${studioOutSLA.length}</strong> &nbsp;·&nbsp; Vini <strong style="color:#ef4444;">${viniOutSLA.length}</strong>`,
+          '#ef4444', '🔴')}
+      </div>
+
+      <!-- Cards row 2 -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+        ${card('Out of SLA — Urgent & High', urgHighBreached.length,
+          `Studio <strong style="color:#f97316;">${studioUH.length}</strong> &nbsp;·&nbsp; Vini <strong style="color:#f97316;">${viniUH.length}</strong>`,
+          '#f97316', '⚠️')}
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;">
+          <div style="position:absolute;top:0;left:0;right:0;height:3px;background:#10b981;"></div>
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">✅ SLA Adherence — MTD</div>
+          <div style="font-size:48px;font-weight:800;color:#10b981;line-height:1;margin-bottom:8px;">${mtd.rate !== null ? mtd.rate + '%' : '—'}</div>
+          <div style="font-size:12px;color:var(--muted);">
+            Last Month <strong style="color:var(--text);">${lm.rate !== null ? lm.rate + '%' : '—'}</strong>
+            &nbsp;·&nbsp;
+            ${MONTH_SHORT[l2lM.m]} <strong style="color:var(--text);">${l2lm.rate !== null ? l2lm.rate + '%' : '—'}</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- Top 5 Oldest -->
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">🕐 Top 5 Oldest Tickets</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+          <div style="background:#eff6ff;border-bottom:1px solid #bfdbfe;padding:10px 14px;">
+            <span style="font-size:12px;font-weight:700;color:#1d4ed8;">🎬 Studio</span>
+          </div>
+          ${oldestRows(studioOldest)}
+        </div>
+        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+          <div style="background:#f0fdf4;border-bottom:1px solid #bbf7d0;padding:10px 14px;">
+            <span style="font-size:12px;font-weight:700;color:#15803d;">🚗 Vini</span>
+          </div>
+          ${oldestRows(viniOldest)}
+        </div>
       </div>
     </div>`;
 }
