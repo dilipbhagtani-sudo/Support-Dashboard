@@ -201,6 +201,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <select class="filter-select" id="csm-select" onchange="renderAll()">
         <option value="all">All CSMs</option>
       </select>
+      <select class="filter-select" id="ob-select" onchange="renderAll()">
+        <option value="all">All OBs</option>
+      </select>
       <select class="filter-select" id="sla-select" onchange="onHeaderSLAChange()" style="min-width:152px;">
         <option value="all">All SLA Status</option>
         <option value="green">✅ Within SLA</option>
@@ -227,11 +230,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
     <div class="tab" data-tab="pendingcs">Pending on CS <span class="tab-badge" id="badge-pendingcs">0</span></div>
     <div class="tab" data-tab="pendingob">Pending on OB <span class="tab-badge" id="badge-pendingob">0</span></div>
+    <div class="tab" data-tab="pendingfinance">Pending on Finance <span class="tab-badge" id="badge-pendingfinance">0</span></div>
     <div class="tab" data-tab="alltickets">All Tickets <span class="tab-badge" id="badge-alltickets">0</span></div>
     <div class="tab" data-tab="enterprise">Enterprise <span class="tab-badge" id="badge-enterprise">0</span></div>
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
+    <div class="tab" data-tab="csmpendency">CSM/OB Pendency <span class="tab-badge" id="badge-csmpendency">0</span></div>
+    <div class="tab" data-tab="voctrends">📈 VOC Trends</div>
     <div class="tab" data-tab="summary">📊 Monthly Summary</div>
-    <div class="tab" data-tab="slack-report">📱 Slack Report</div>
   </div>
 
   <!-- STUDIO OVERVIEW TAB -->
@@ -268,11 +273,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="chart-canvas-wrap"><canvas id="chart-by-cat"></canvas></div>
     </div>
 
-    <div class="chart-card" style="margin-bottom:18px;">
-      <div class="chart-title">Top VoC L1 <span style="font-size:10px;color:var(--muted);font-weight:400;">(Click a bar to see Top 5 L2 breakdown)</span></div>
-      <div class="chart-canvas-wrap" style="height:220px;"><canvas id="chart-voc-l1"></canvas></div>
-    </div>
-    <div id="voc-drill-panel" style="margin-bottom:18px;"></div>
     <div id="ticket-viewer-panel" style="margin-bottom:18px;display:none;"></div>
     <!-- Global ticket modal is appended to body dynamically -->
 
@@ -292,11 +292,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-onhold"><div id="detail-onhold"></div></div>
   <div class="tab-content" id="tab-pendingcs"><div id="detail-pendingcs"></div></div>
   <div class="tab-content" id="tab-pendingob"><div id="detail-pendingob"></div></div>
+  <div class="tab-content" id="tab-pendingfinance"><div id="detail-pendingfinance"></div></div>
   <div class="tab-content" id="tab-alltickets"><div id="detail-alltickets"></div></div>
   <div class="tab-content" id="tab-enterprise"><div id="detail-enterprise"></div></div>
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
+  <div class="tab-content" id="tab-csmpendency"><div id="detail-csmpendency"></div></div>
+  <div class="tab-content" id="tab-voctrends"><div id="detail-voctrends"></div></div>
   <div class="tab-content" id="tab-summary"><div id="detail-summary"></div></div>
-  <div class="tab-content" id="tab-slack-report"><div id="detail-slack-report"></div></div>
 
 </div>
 
@@ -324,10 +326,12 @@ const CATEGORIES = [
     filter: r => r['Status'] === 'Pending at Creative' },
   { id:'onhold',     label:'PS On Hold',              color:'#64748b',
     filter: r => r['Status'] === 'On Hold (Internal)' },
-  { id:'pendingcs', label:'Pending on CS',       color:'#a855f7',
+  { id:'pendingcs', label:'Pending on CS',             color:'#a855f7',
     filter: r => r['Status'] === 'Pending on CS' },
-  { id:'pendingob', label:'Pending on OB',       color:'#d946ef',
+  { id:'pendingob', label:'Pending on OB',             color:'#d946ef',
     filter: r => r['Status'] === 'Pending on OB' },
+  { id:'pendingfinance', label:'Pending on Finance',   color:'#0891b2',
+    filter: r => r['Status'] === 'Pending on Finance' },
 ];
 
 // ─── AGING BUCKETS ────────────────────────────────────────────────────────────
@@ -482,6 +486,47 @@ function toggleDrillRow(btnEl, storeName, key) {
   }
 }
 
+function toggleL2Drill(key) {
+  const store = window._typeData || {};
+  const data  = store[key];
+  if (!data) return;
+  const row = document.querySelector(`tr[data-l2key="${key}"]`);
+  if (!row) return;
+  const drillRow = row.nextElementSibling;
+  if (!drillRow) return;
+  const isOpen = drillRow.style.display !== 'none';
+  // Close all drill rows in same table
+  row.closest('tbody').querySelectorAll('#l2drill-' + key).forEach(r => r.style.display = 'none');
+  row.closest('tbody').querySelectorAll('.voc-l1-row').forEach(r => r.classList.remove('open'));
+  if (isOpen) return;
+  drillRow.style.display = '';
+  row.classList.add('open');
+  const contentCell = drillRow.querySelector('td:last-child');
+  if (contentCell && !contentCell.dataset.loaded) {
+    // Show top L2 items for this L1
+    const l1 = data.l1;
+    const allFiltered = window._typeBaseTickets || [];
+    const filtered = allFiltered.filter(r => (r['VoC L1']||'').trim() === l1);
+    const l2Map = {};
+    filtered.forEach(r => {
+      const v = (r['VoC L2']||'').trim();
+      if (v && !['','others','other','unspecified','n/a','none'].includes(v.toLowerCase())) {
+        if (!l2Map[v]) l2Map[v] = { count: 0, tickets: [] };
+        l2Map[v].count++;
+        l2Map[v].tickets.push(r);
+      }
+    });
+    const l2Sorted = Object.entries(l2Map).sort((a,b)=>b[1].count-a[1].count).slice(0,3);
+    const drillHTML = l2Sorted.length
+      ? `<div style="padding:8px 0;font-size:11px;color:var(--muted);"><strong>Top VoC L2:</strong></div>` +
+        l2Sorted.map(e => `<div style="padding:3px 0;display:flex;justify-content:space-between;"><span>${e[0]}</span> <span style="color:var(--accent);font-weight:700;">${e[1].count}</span></div>`).join('') +
+        `<div style="margin-top:8px;font-size:10px;"><a href="javascript:void(0)" onclick="showVocL2DrillWithEnterprises('${l1}',window._typeBaseTickets||[])" style="color:var(--accent);text-decoration:underline;">View L2 breakdown & enterprises →</a></div>`
+      : '<div style="color:var(--muted);font-size:11px;">No additional L2 data</div>';
+    contentCell.innerHTML = drillHTML;
+    contentCell.dataset.loaded = '1';
+  }
+}
+
 function toggleEnterpriseTickets(key, entName) {
   // Legacy — kept for compatibility, now handled by toggleDrillRow
 }
@@ -549,6 +594,83 @@ function renderCsmTab(tickets) {
         <tbody>${rows}</tbody>
       </table>
     </div>`;
+}
+
+// ─── CSM/OB PENDENCY TAB ────────────────────────────────────────────────────
+function _buildPendencyTable(tickets, groupByField, groupLabel, storeKey, color) {
+  if (!tickets.length) return '<div style="padding:20px;text-align:center;color:var(--muted);font-size:13px;">No tickets</div>';
+  var grpMap = {};
+  tickets.forEach(function(r) {
+    var name = (r[groupByField] || 'Unassigned').trim();
+    if (!grpMap[name]) grpMap[name] = { tickets: [], urgent: 0, high: 0 };
+    grpMap[name].tickets.push(r);
+    if (r['Priority'] === 'Urgent') grpMap[name].urgent++;
+    if (r['Priority'] === 'High') grpMap[name].high++;
+  });
+  var sorted = Object.entries(grpMap).sort(function(a, b) { return b[1].tickets.length - a[1].tickets.length; });
+  if (!window[storeKey]) window[storeKey] = {};
+  var rows = sorted.map(function(entry, i) {
+    var name = entry[0], data = entry[1];
+    var key = storeKey + '_' + i;
+    window[storeKey][key] = data;
+    var maxDays = data.tickets.length ? Math.max.apply(null, data.tickets.map(function(r) { return daysOpen(r) || 0; })) : 0;
+    var slaBreached = data.tickets.filter(function(r) { return getSLAStatus(r) === 'red'; }).length;
+    var enterprises = [];
+    data.tickets.forEach(function(r) { var e = r['Enterprise Name']; if (e && enterprises.indexOf(e) === -1) enterprises.push(e); });
+    return '<tr style="cursor:pointer;" onclick="toggleDrillRow(this.querySelector(\'button\'), \'' + storeKey + '\', \'' + key + '\')">' +
+      '<td style="padding:8px 12px;font-size:13px;font-weight:600;color:var(--text);"><button class="drill-arrow" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;margin-right:4px;">▾</button>' + name.replace(/</g,'&lt;') + '</td>' +
+      '<td style="padding:8px 12px;font-size:14px;font-weight:700;color:' + color + ';">' + data.tickets.length + '</td>' +
+      '<td style="padding:8px 12px;">' + (data.urgent ? '<span style="color:#ef4444;font-weight:700;">' + data.urgent + 'U</span> ' : '') + (data.high ? '<span style="color:#f59e0b;font-weight:600;">' + data.high + 'H</span>' : '') + '</td>' +
+      '<td style="padding:8px 12px;font-size:12px;color:var(--muted);">' + enterprises.length + ' enterprises</td>' +
+      '<td style="padding:8px 12px;font-size:12px;color:' + (maxDays > 14 ? 'var(--red)' : maxDays > 7 ? 'var(--amber)' : 'var(--green)') + ';">' + maxDays + 'd max</td>' +
+      '<td style="padding:8px 12px;">' + (slaBreached ? '<span style="color:#ef4444;font-size:12px;font-weight:600;">🔴 ' + slaBreached + ' breached</span>' : '<span style="color:#10b981;font-size:12px;">✅ OK</span>') + '</td>' +
+    '</tr>' +
+    '<tr class="drill-content-row" style="display:none;background:var(--surface2);">' +
+      '<td colspan="6" class="drill-content-cell" style="padding:4px 16px;"></td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="table-wrap" style="margin-bottom:16px;">' +
+    '<table class="ticket-table">' +
+      '<thead><tr>' +
+        '<th>' + groupLabel + '</th><th>Total</th><th>Priority</th><th>Enterprises</th><th>Max Age</th><th>SLA</th>' +
+      '</tr></thead>' +
+      '<tbody>' + rows + '</tbody>' +
+    '</table>' +
+  '</div>';
+}
+
+function renderCsmPendencyTab(allPending) {
+  var el = document.getElementById('detail-csmpendency');
+  var badge = document.getElementById('badge-csmpendency');
+  if (!el) return;
+
+  var csTickets = allPending.filter(function(r) { return r['Status'] === 'Pending on CS'; });
+  var obTickets = allPending.filter(function(r) { return r['Status'] === 'Pending on OB'; });
+  var total = csTickets.length + obTickets.length;
+
+  if (badge) badge.textContent = total;
+
+  if (!total) {
+    el.innerHTML = '<div class="empty-state"><span class="icon">👤</span><strong>No CS/OB pending tickets</strong></div>';
+    return;
+  }
+
+  el.innerHTML =
+    '<div class="summary-banner" style="margin-bottom:16px;">' +
+      '<div class="sb-main">' +
+        '<div class="sb-label">CSM/OB Pending Tickets</div>' +
+        '<div class="sb-value" style="color:var(--accent)">' + total + '</div>' +
+      '</div>' +
+      '<div class="sb-divider"></div>' +
+      '<div class="sb-breakdown">' +
+        '<div class="sb-pill" style="border-color:#a855f733;color:#a855f7;">Pending on CS: <strong>' + csTickets.length + '</strong></div>' +
+        '<div class="sb-pill" style="border-color:#d946ef33;color:#d946ef;">Pending on OB: <strong>' + obTickets.length + '</strong></div>' +
+      '</div>' +
+    '</div>' +
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#a855f7;margin-bottom:10px;">Pending on CS — by CSM Name</div>' +
+    _buildPendencyTable(csTickets, 'CSM Name', 'CSM Name', '_csPendData', '#a855f7') +
+    '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#d946ef;margin-bottom:10px;">Pending on OB — by OB Name</div>' +
+    _buildPendencyTable(obTickets, 'OB Name', 'OB Name', '_obPendData', '#d946ef');
 }
 
 // ─── FRESHDESK FETCH ──────────────────────────────────────────────────────────
@@ -626,6 +748,15 @@ function populateFilters(){
       const o=document.createElement('option');o.value=c;o.textContent=c;csmsel.appendChild(o);
     });
   }
+  // OB
+  const obsel=document.getElementById('ob-select');
+  if(obsel){
+    while(obsel.options.length>1)obsel.remove(1);
+    obsel.value='all';
+    [...new Set(allData.map(r=>(r['OB Name']||'').trim()).filter(Boolean))].sort().forEach(c=>{
+      const o=document.createElement('option');o.value=c;o.textContent=c;obsel.appendChild(o);
+    });
+  }
   // ENT Type
   const esel=document.getElementById('enttype-select');
   while(esel.options.length>1)esel.remove(1);
@@ -643,6 +774,7 @@ function getFiltered(){
   const cf=document.getElementById('category-select').value;
   const ef=document.getElementById('enttype-select').value;
   const csmf=(document.getElementById('csm-select')||{}).value||'all';
+  const obf=(document.getElementById('ob-select')||{}).value||'all';
   const sf=(document.getElementById('sla-select')||{}).value||'all';
   const ttf=(document.getElementById('ticket-type-select')||{}).value||'all';
   return allData.filter(r=>{
@@ -657,6 +789,7 @@ function getFiltered(){
     if(cf!=='all'&&(r['cf_categorytype']||r['Category/Type']||'').trim()!==cf)return false;
     if(ef!=='all'&&(r['ENT Type']||'').trim()!==ef)return false;
     if(csmf!=='all'&&(r['CSM Name']||r['CSM Name (updated)']||'').trim()!==csmf)return false;
+    if(obf!=='all'&&(r['OB Name']||'').trim()!==obf)return false;
     if(sf==='amber'){const s=getSLAStatus(r);if(s!=='amber'&&s!=='orange')return false;}
     else if(sf!=='all'&&getSLAStatus(r)!==sf)return false;
     if(window._vocL2Filter&&(r['VoC L2']||'').trim()!==window._vocL2Filter)return false;
@@ -673,12 +806,14 @@ function getFilteredAllTickets() {
   const cf  = document.getElementById('category-select').value;
   const ef  = document.getElementById('enttype-select').value;
   const csmf = (document.getElementById('csm-select') || {}).value || 'all';
+  const obf = (document.getElementById('ob-select') || {}).value || 'all';
   return all.filter(r => {
     if (pf  !== 'all' && r['Product (Studio/Vini)'] !== pf) return false;
     if (prf !== 'all' && r['Priority'] !== prf) return false;
     if (cf  !== 'all' && (r['cf_categorytype'] || r['Category/Type'] || '').trim() !== cf) return false;
     if (ef  !== 'all' && (r['ENT Type'] || '').trim() !== ef) return false;
     if (csmf !== 'all' && (r['CSM Name'] || r['CSM Name (updated)'] || '').trim() !== csmf) return false;
+    if (obf !== 'all' && (r['OB Name'] || '').trim() !== obf) return false;
     const ttf = (document.getElementById('ticket-type-select') || {}).value || 'all';
     if (ttf !== 'all') { const tt = (r['Ticket Type'] || '').toLowerCase(); if (tt !== ttf) return false; }
     return true;
@@ -754,33 +889,45 @@ function hoursOpen(r){
 // SLA thresholds: Urgent 6h | High 1d | Medium 5d | Low 10d
 // Color bands: Green=within SLA, Amber=slight, Orange=moderate, Red=breached
 function getSLAStatus(r){
-  const h=hoursOpen(r);if(h===null)return null;
-  const d=h/24;
-  const p=normalizePriority(r);if(!p)return null;
-  if(p==='Urgent'){
-    if(h<=6)  return 'green';
-    if(h<=48) return 'amber';
-    if(h<=72) return 'orange';
-    return 'red';
+  const dueBy = r['Due by'];
+  if (!dueBy) return null;
+
+  const now = new Date();
+  const dueDate = new Date(dueBy);
+
+  if (isNaN(dueDate.getTime())) return null;
+
+  const hoursUntilDue = (dueDate - now) / (1000 * 60 * 60);
+  const daysUntilDue = hoursUntilDue / 24;
+  const p = normalizePriority(r);
+
+  if (!p) return null;
+
+  // Simple SLA: Red = any overdue, Amber = within threshold ranges, Green = not yet due
+  if (p === 'Urgent') {
+    if (hoursUntilDue >= 0) return 'green';       // Not yet due
+    if (hoursUntilDue >= -72) return 'amber';     // Overdue 0-72 hours (6-48 hrs & 48-72 hrs)
+    return 'red';                                  // Overdue >72 hours
   }
-  if(p==='High'){
-    if(d<1)  return 'green';
-    if(d<=3) return 'amber';
-    if(d<=5) return 'orange';
-    return 'red';
+
+  if (p === 'High') {
+    if (daysUntilDue >= 0) return 'green';        // Not yet due
+    if (daysUntilDue >= -5) return 'amber';       // Overdue 0-5 days (1-3 days & 3-5 days)
+    return 'red';                                  // Overdue >5 days
   }
-  if(p==='Medium'){
-    if(d<5)  return 'green';
-    if(d<=7) return 'amber';
-    if(d<=10)return 'orange';
-    return 'red';
+
+  if (p === 'Medium') {
+    if (daysUntilDue >= 0) return 'green';        // Not yet due
+    if (daysUntilDue >= -10) return 'amber';      // Overdue 0-10 days (5-7 days & 7-10 days)
+    return 'red';                                  // Overdue >10 days
   }
-  if(p==='Low'){
-    if(d<15) return 'green';
-    if(d<=20)return 'amber';
-    if(d<=30)return 'orange';
-    return 'red';
+
+  if (p === 'Low') {
+    if (daysUntilDue >= 0) return 'green';        // Not yet due
+    if (daysUntilDue >= -30) return 'amber';      // Overdue 0-30 days (15-20 days & 20-30 days)
+    return 'red';                                  // Overdue >30 days
   }
+
   return null;
 }
 function prioBadge(p){
@@ -814,8 +961,11 @@ function renderAll(){
   renderAllTicketsTab(base);
   renderEnterpriseTab(base);
   renderCsmTab(base);
+  renderCsmPendencyTab(base);
+  // Pass both filtered pending and filtered all tickets to VOC trends
+  const filteredAllTickets = getFilteredAllTickets();
+  renderVocTrendsTab(base, filteredAllTickets);
   renderSummaryTab(getFilteredAllTickets());
-  renderSlackReport(getFilteredAllTickets());
   renderProductOverview('Studio','detail-studio-overview', base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
   renderProductOverview('Vini',  'detail-vini-overview',   base.filter(r=>r['Product (Studio/Vini)']==='Vini'));
 }
@@ -866,8 +1016,9 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on CS',          status:'Pending on CS',         color:'#a855f7' },
-    { label:'Pending on OB',          status:'Pending on OB',         color:'#d946ef' },
+    { label:'Pending on CS',         status:'Pending on CS',         color:'#a855f7' },
+    { label:'Pending on OB',        status:'Pending on OB',         color:'#d946ef' },
+    { label:'Pending on Finance',   status:'Pending on Finance',    color:'#0891b2' },
     { label:'Waiting on Third Party',status:'Waiting on third party', color:'#0ea5e9' },
   ] : [
     { label:'PS Open',               status:'Open',                   color:'#ef4444' },
@@ -877,25 +1028,45 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
     { label:'PS On Hold',            status:'On Hold (Internal)',     color:'#94a3b8' },
-    { label:'Pending on CS',          status:'Pending on CS',         color:'#a855f7' },
-    { label:'Pending on OB',          status:'Pending on OB',         color:'#d946ef' },
+    { label:'Pending on CS',         status:'Pending on CS',         color:'#a855f7' },
+    { label:'Pending on OB',        status:'Pending on OB',         color:'#d946ef' },
+    { label:'Pending on Finance',   status:'Pending on Finance',    color:'#0891b2' },
   ];
 
   const PRIOS = ['Urgent','High','Medium','Low'];
 
-  // ── KPI Cards ─────────────────────────────────────────────────────────────────
-  const kpiCards = [
-    { label:'Total Pending', value:total,    color,           sla:'all',   subtitle:'Open + On-Hold tickets' },
-    { label:'SLA Breached',  value:breached, color:'#ef4444', sla:'red',   subtitle:'Overdue resolution'     },
-    { label:'At Risk',       value:atRisk,   color:'#f59e0b', sla:'amber', subtitle:'Breach within 24 hrs'   },
-    { label:'On Track',      value:onTrack,  color:'#10b981', sla:'green', subtitle:'Within SLA window'      },
-  ].map(k => `
+  // ── Type counts (Bug / Task / Enhancement) ─────────────────────────────────
+  const bugCount = typeCol ? tickets.filter(r => (r[typeCol]||'').toLowerCase().includes('bug')).length : 0;
+  const taskCount = typeCol ? tickets.filter(r => (r[typeCol]||'').toLowerCase().includes('task')).length : 0;
+  const enhCount = typeCol ? tickets.filter(r => { const v=(r[typeCol]||'').toLowerCase(); return v.includes('enhancement')||v.includes('feature')||v.includes('improvement'); }).length : 0;
+
+  // ── KPI Cards (with Bug/Task/Enhancement breakdown inside) ─────────────────
+  function _typeBreakdown(tix) {
+    if (!typeCol) return '';
+    const b = tix.filter(r => (r[typeCol]||'').toLowerCase().includes('bug')).length;
+    const t = tix.filter(r => (r[typeCol]||'').toLowerCase().includes('task')).length;
+    const e = tix.filter(r => { const v=(r[typeCol]||'').toLowerCase(); return v.includes('enhancement')||v.includes('feature')||v.includes('improvement'); }).length;
+    if (!b && !t && !e) return '';
+    return `<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;">` +
+      (b ? `<span style="font-size:10px;font-weight:600;background:#ef444418;color:#ef4444;border-radius:8px;padding:2px 7px;">🐛 ${b}</span>` : '') +
+      (t ? `<span style="font-size:10px;font-weight:600;background:#3b82f618;color:#3b82f6;border-radius:8px;padding:2px 7px;">📋 ${t}</span>` : '') +
+      (e ? `<span style="font-size:10px;font-weight:600;background:#8b5cf618;color:#8b5cf6;border-radius:8px;padding:2px 7px;">✨ ${e}</span>` : '') +
+    `</div>`;
+  }
+  const _kpiDefs = [
+    { label:'Total Pending', value:total,    color,           sla:'all',   subtitle:'Open + On-Hold tickets', tix:tickets },
+    { label:'SLA Breached',  value:breached, color:'#ef4444', sla:'red',   subtitle:'Overdue resolution',     tix:tickets.filter(r=>getSLAStatus(r)==='red') },
+    { label:'At Risk',       value:atRisk,   color:'#f59e0b', sla:'amber', subtitle:'Breach within 24 hrs',   tix:tickets.filter(r=>{const s=getSLAStatus(r);return s==='amber'||s==='orange';}) },
+    { label:'On Track',      value:onTrack,  color:'#10b981', sla:'green', subtitle:'Within SLA window',      tix:tickets.filter(r=>getSLAStatus(r)==='green') },
+  ];
+  const kpiCards = _kpiDefs.map(k => `
     <div onclick="filterFromProdOverview('${product}','${k.sla}')"
       style="background:${k.color}0d;border:1.5px solid ${k.color}33;border-radius:14px;padding:18px 22px;flex:1;min-width:140px;border-top:3px solid ${k.color};cursor:pointer;transition:box-shadow .15s;"
       onmouseover="this.style.boxShadow='0 4px 16px ${k.color}33'" onmouseout="this.style.boxShadow='none'">
       <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:${k.color};margin-bottom:8px;">${k.label}</div>
       <div style="font-size:36px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
       <div style="font-size:11px;color:var(--muted);margin-top:5px;">${k.subtitle}</div>
+      ${_typeBreakdown(k.tix)}
     </div>`).join('');
 
   // ── Pendency & Breachometer by Priority rows ──────────────────────────────────
@@ -1305,28 +1476,6 @@ function renderOverview(buckets,total){
     data:catCounts,backgroundColor:catColors.map(c=>c+'bb'),borderColor:catColors,borderWidth:1,borderRadius:4
   }],{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{grid:{color:'#e2e8f0'},ticks:{color:'#64748b'}},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:10}}}}});
 
-  // ── VoC L1 chart (clickable — drills into Top 5 VoC L2) ──────────────────
-  const EXCLUDE_L1=['','unspecified','n/a','na','none','not specified'];
-  const vocL1Map={};
-  allPendingForSplit.forEach(r=>{
-    const v=(r['VoC L1']||'').trim();
-    if(!EXCLUDE_L1.includes(v.toLowerCase()))vocL1Map[v]=(vocL1Map[v]||0)+1;
-  });
-  const vocL1Sorted=Object.entries(vocL1Map).sort((a,b)=>b[1]-a[1]).slice(0,8);
-  const drillPanel=document.getElementById('voc-drill-panel');
-  if(drillPanel)drillPanel.innerHTML='';
-  if(vocL1Sorted.length){
-    renderChart('chart-voc-l1','bar',
-      vocL1Sorted.map(e=>e[0]),
-      [{data:vocL1Sorted.map(e=>e[1]),backgroundColor:'#8b5cf6bb',borderColor:'#8b5cf6',borderWidth:1,borderRadius:4}],
-      {indexAxis:'y',plugins:{legend:{display:false}},
-       scales:{x:{grid:{color:'#e2e8f0'},ticks:{color:'#64748b'}},y:{grid:{display:false},ticks:{color:'#94a3b8',font:{size:11}}}},
-       onClick:(evt,els)=>{
-         if(!els.length)return;
-         const lbl=vocL1Sorted[els[0].index][0];
-         showVocL2Drill(lbl,allPendingForSplit);
-       }});
-  }
 }
 
 // ─── TYPE VOC TABLES (Bug / Task / Query) — clickable for L2 drill ────────────
@@ -2245,6 +2394,724 @@ if (!document.getElementById('modal-anim-style')) {
   document.head.appendChild(s);
 }
 
+// ─── SHOW VOC L2 TABLE ENTERPRISES ──────────────────────────────────────────
+function showVocL2TableEnterprises(storeKey, vocL2Label) {
+  const data = (window._vocL2TableData || {})[storeKey];
+  if (!data) return;
+
+  const tickets = data.tickets;
+
+  // Build enterprises map
+  const enterpriseMap = {};
+  tickets.forEach(r => {
+    const ent = (r['Enterprise Name'] || 'Unknown').trim();
+    if (!enterpriseMap[ent]) {
+      enterpriseMap[ent] = {
+        tickets: [],
+        vocL1s: new Set(),
+        priority: { Urgent: 0, High: 0, Medium: 0, Low: 0 },
+        status: new Set(),
+        csm: ''
+      };
+    }
+    enterpriseMap[ent].tickets.push(r);
+    const l1 = (r['VoC L1'] || '').trim();
+    if (l1) enterpriseMap[ent].vocL1s.add(l1);
+    const p = r['Priority'];
+    if (p && enterpriseMap[ent].priority[p] !== undefined) enterpriseMap[ent].priority[p]++;
+    const st = r['Status'];
+    if (st) enterpriseMap[ent].status.add(st);
+    if (!enterpriseMap[ent].csm) enterpriseMap[ent].csm = r['CSM Name'] || r['CSM Name (updated)'] || '';
+  });
+
+  const enterpriseSorted = Object.entries(enterpriseMap)
+    .sort((a, b) => b[1].tickets.length - a[1].tickets.length)
+    .slice(0, 30);
+
+  const entRows = enterpriseSorted.map(([ent, data]) => {
+    const maxDays = data.tickets.length ? Math.max(...data.tickets.map(r => daysOpen(r) ?? 0)) : 0;
+    const l1List = [...data.vocL1s].slice(0, 3).join(', ') || '—';
+    const statusList = [...data.status].slice(0, 2).join(', ') || '—';
+    const priorityStr = [data.priority.Urgent && `${data.priority.Urgent}U`, data.priority.High && `${data.priority.High}H`].filter(Boolean).join(' ') || '—';
+    const ageColor = maxDays > 14 ? 'var(--red)' : maxDays > 7 ? 'var(--amber)' : 'var(--green)';
+
+    return `<tr style="border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <td style="padding:11px 12px;font-size:13px;font-weight:600;color:var(--text);">${ent.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+      <td style="padding:11px 12px;text-align:center;font-size:13px;font-weight:700;color:var(--accent);">${data.tickets.length}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${priorityStr}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${statusList}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${l1List}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${data.csm || '—'}</td>
+      <td style="padding:11px 12px;font-size:12px;color:${ageColor};font-weight:600;">${maxDays}d</td>
+    </tr>`;
+  }).join('');
+
+  // Show/hide panel
+  let panel = document.getElementById('voc-l2-table-enterprises-panel');
+  if (!panel) {
+    const container = document.getElementById('voc-l2-table-container');
+    if (!container) return;
+    panel = document.createElement('div');
+    panel.id = 'voc-l2-table-enterprises-panel';
+    panel.style.marginTop = '24px';
+    container.parentElement.insertBefore(panel, container.nextSibling);
+  }
+
+  if (panel.dataset.vocL2 === vocL2Label) {
+    // Toggle: hide if already showing
+    panel.innerHTML = '';
+    panel.dataset.vocL2 = '';
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="chart-card">
+      <div class="chart-title">🏢 Enterprises Impacted by VOC L2: <span style="color:#06b6d4;">${vocL2Label.replace(/</g,'&lt;')}</span></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding:0 2px;">${enterpriseSorted.length} enterprises with ${tickets.length} total tickets</div>
+      <div style="overflow-x:auto;">
+        <table class="ticket-table" style="margin:0;">
+          <thead><tr>
+            <th style="padding:8px 12px;text-align:left;">Enterprise</th>
+            <th style="padding:8px 12px;text-align:center;">Tickets</th>
+            <th style="padding:8px 12px;">Priority</th>
+            <th style="padding:8px 12px;">Status</th>
+            <th style="padding:8px 12px;">VoC L1</th>
+            <th style="padding:8px 12px;">CSM</th>
+            <th style="padding:8px 12px;">Max Age</th>
+          </tr></thead>
+          <tbody>${entRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  panel.dataset.vocL2 = vocL2Label;
+}
+
+// ─── VOC L2 TRENDS TABLE SECTION ────────────────────────────────────────────
+function renderVocL2TrendsSection(pendingTickets, allTickets, weekDates) {
+  const EXCLUDE_L2 = ['','others','other','unspecified','n/a','none'];
+  const container = document.getElementById('voc-l2-table-container');
+  if (!container) return;
+
+  // Get unique VOC L2 values from ALL tickets (not just pending)
+  const allL2 = new Set();
+  allTickets.forEach(r => {
+    const v = (r['VoC L2'] || '').trim();
+    if (!EXCLUDE_L2.includes(v.toLowerCase()) && v) allL2.add(v);
+  });
+
+  // Sort by current count (all tickets)
+  const l2Counts = {};
+  const l2Data = {};
+  const l2TicketsMap = {};
+
+  allL2.forEach(l2 => {
+    const tickets = allTickets.filter(r => (r['VoC L2']||'').trim() === l2);
+    l2Counts[l2] = tickets.length;
+    l2TicketsMap[l2] = tickets;
+
+    // Calculate trend data for each L2 (all tickets created during week, still existing)
+    const trendData = [];
+    weekDates.forEach(week => {
+      const count = allTickets.filter(t => {
+        if ((t['VoC L2'] || '').trim() !== l2) return false;
+        const created = t['Created time'] ? new Date(t['Created time']) : null;
+        if (!created || created < week.start || created > week.end) return false;
+        return true;
+      }).length;
+      trendData.push(count);
+    });
+    l2Data[l2] = trendData;
+  });
+
+  const topL2 = Array.from(allL2)
+    .sort((a, b) => (l2Counts[b] || 0) - (l2Counts[a] || 0))
+    .slice(0, 15);
+
+  if (!topL2.length) {
+    container.innerHTML = `<div style="padding:20px;color:var(--muted);text-align:center;">No VOC L2 data available</div>`;
+    return;
+  }
+
+  // Create table rows
+  const rows = topL2.map((vocL2, idx) => {
+    const count = l2Counts[vocL2];
+    const trendData = l2Data[vocL2];
+    const maxVal = Math.max(...trendData, 1);
+
+    // Calculate % change (first week vs last week)
+    const firstWeek = trendData[0] || 0;
+    const lastWeek = trendData[trendData.length - 1] || 0;
+    const change = firstWeek ? Math.round(((lastWeek - firstWeek) / firstWeek) * 100) : 0;
+    const changeColor = change > 0 ? '#ef4444' : change < 0 ? '#10b981' : '#64748b';
+    const changeSymbol = change > 0 ? '↑' : change < 0 ? '↓' : '—';
+
+    // Create sparkline (mini chart)
+    const canvasId = 'sparkline-' + idx;
+    const chartHTML = `<canvas id="${canvasId}" width="150" height="40" style="vertical-align:middle;"></canvas>`;
+
+    // Get max age for this L2
+    const ticketsL2 = pendingTickets.filter(r => (r['VoC L2']||'').trim() === vocL2);
+    const maxDays = ticketsL2.length ? Math.max(...ticketsL2.map(r => daysOpen(r) ?? 0)) : 0;
+
+    // Store tickets for this L2 globally for click handler
+    if (!window._vocL2TableData) window._vocL2TableData = {};
+    const storeKey = 'vocl2_' + idx;
+    window._vocL2TableData[storeKey] = { vocL2: vocL2, tickets: ticketsL2 };
+
+    return {
+      html: `<tr style="border-bottom:1px solid var(--border);cursor:pointer;transition:all 0.15s;" onclick="showVocL2TableEnterprises('${storeKey}', '${vocL2.replace(/'/g, "\\'")}')" onmouseover="this.style.background='var(--surface2)';this.style.fontWeight='600';" onmouseout="this.style.background='';this.style.fontWeight='400';">
+        <td style="padding:12px;font-size:13px;font-weight:inherit;color:var(--text);">${vocL2.replace(/</g,'&lt;')}</td>
+        <td style="padding:12px;text-align:center;min-width:180px;">${chartHTML}</td>
+        <td style="padding:12px;text-align:center;font-size:13px;font-weight:600;color:${changeColor};">${changeSymbol} ${Math.abs(change)}%</td>
+        <td style="padding:12px;text-align:center;font-size:14px;font-weight:700;color:var(--accent);">${count}</td>
+        <td style="padding:12px;text-align:center;font-size:12px;color:var(--muted);">${maxDays}d</td>
+      </tr>`,
+      canvasId: canvasId,
+      trendData: trendData,
+      maxVal: maxVal
+    };
+  });
+
+  const html = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
+            <th style="padding:10px 12px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">Issue</th>
+            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">Trend</th>
+            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">Δ vs prior</th>
+            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">Tickets</th>
+            <th style="padding:10px 12px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);">Days Quiet</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(r => r.html).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+
+  container.innerHTML = html;
+
+  // Render sparkline charts
+  rows.forEach(row => {
+    setTimeout(() => {
+      const canvas = document.getElementById(row.canvasId);
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      // Draw sparkline
+      const width = canvas.width;
+      const height = canvas.height;
+      const padding = 4;
+      const graphWidth = width - (padding * 2);
+      const graphHeight = height - (padding * 2);
+      const pointSpacing = graphWidth / (row.trendData.length - 1 || 1);
+
+      ctx.strokeStyle = '#3b82f6';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+
+      row.trendData.forEach((value, i) => {
+        const x = padding + (i * pointSpacing);
+        const y = padding + (graphHeight - (value / row.maxVal) * graphHeight);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+
+      ctx.stroke();
+
+      // Draw points
+      ctx.fillStyle = '#3b82f6';
+      row.trendData.forEach((value, i) => {
+        const x = padding + (i * pointSpacing);
+        const y = padding + (graphHeight - (value / row.maxVal) * graphHeight);
+        ctx.beginPath();
+        ctx.arc(x, y, 2, 0, Math.PI * 2);
+        ctx.fill();
+      });
+    }, 0);
+  });
+}
+
+function drillDownVocL2Weekly(vocL2Label, pendingTickets) {
+  showVocL2WeeklyEnterprises(vocL2Label, pendingTickets);
+  // Scroll to enterprises section
+  setTimeout(() => {
+    const panel = document.getElementById('voc-l2-weekly-enterprises-panel');
+    if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, 100);
+}
+
+function showVocL2WeeklyEnterprises(vocL2Label, tickets) {
+  const filtered = tickets.filter(r => (r['VoC L2'] || '').trim() === vocL2Label);
+
+  // Build enterprises map
+  const enterpriseMap = {};
+  filtered.forEach(r => {
+    const ent = (r['Enterprise Name'] || 'Unknown').trim();
+    if (!enterpriseMap[ent]) {
+      enterpriseMap[ent] = {
+        tickets: [],
+        vocL1s: new Set(),
+        priority: { Urgent: 0, High: 0, Medium: 0, Low: 0 },
+        csm: ''
+      };
+    }
+    enterpriseMap[ent].tickets.push(r);
+    const l1 = (r['VoC L1'] || '').trim();
+    if (l1) enterpriseMap[ent].vocL1s.add(l1);
+    const p = r['Priority'];
+    if (p && enterpriseMap[ent].priority[p] !== undefined) enterpriseMap[ent].priority[p]++;
+    if (!enterpriseMap[ent].csm) enterpriseMap[ent].csm = r['CSM Name'] || r['CSM Name (updated)'] || '';
+  });
+
+  const enterpriseSorted = Object.entries(enterpriseMap)
+    .sort((a, b) => b[1].tickets.length - a[1].tickets.length)
+    .slice(0, 25);
+
+  const entRows = enterpriseSorted.map(([ent, data]) => {
+    const maxDays = data.tickets.length ? Math.max(...data.tickets.map(r => daysOpen(r) ?? 0)) : 0;
+    const l1List = [...data.vocL1s].slice(0, 3).join(', ') || '—';
+    const priorityStr = [data.priority.Urgent && `${data.priority.Urgent}U`, data.priority.High && `${data.priority.High}H`].filter(Boolean).join(' ') || '—';
+    const ageColor = maxDays > 14 ? 'var(--red)' : maxDays > 7 ? 'var(--amber)' : 'var(--green)';
+
+    return `<tr style="border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <td style="padding:11px 12px;font-size:13px;font-weight:600;color:var(--text);">${ent.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+      <td style="padding:11px 12px;text-align:center;font-size:13px;font-weight:700;color:var(--accent);">${data.tickets.length}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${priorityStr}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${l1List}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${data.csm || '—'}</td>
+      <td style="padding:11px 12px;font-size:12px;color:${ageColor};font-weight:600;">${maxDays}d</td>
+    </tr>`;
+  }).join('');
+
+  const panel = document.getElementById('voc-l2-weekly-enterprises-panel');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="chart-card">
+      <div class="chart-title">🏢 Impacted Enterprises for VOC L2: <span style="color:#06b6d4;">${vocL2Label.replace(/</g,'&lt;')}</span></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding:0 2px;">${enterpriseSorted.length} enterprises with ${filtered.length} pending tickets</div>
+      <div style="overflow-x:auto;">
+        <table class="ticket-table" style="margin:0;">
+          <thead><tr>
+            <th style="padding:8px 12px;text-align:left;">Enterprise</th>
+            <th style="padding:8px 12px;text-align:center;">Tickets</th>
+            <th style="padding:8px 12px;">Priority</th>
+            <th style="padding:8px 12px;">VoC L1</th>
+            <th style="padding:8px 12px;">CSM</th>
+            <th style="padding:8px 12px;">Max Age</th>
+          </tr></thead>
+          <tbody>${entRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ─── DRILL DOWN VOC L1 WEEKLY WITH MODAL ────────────────────────────────────
+function drillDownVocL1Weekly(vocL1Label, pendingTickets, weekDates, allTickets) {
+  // Show in modal with ALL tickets (not just pending)
+  showVocL1ModalDrill(vocL1Label, allTickets);
+}
+
+function showVocL1ModalDrill(vocL1Label, allTickets) {
+  // Remove existing modal if any
+  const existing = document.getElementById('voc-l1-modal');
+  if (existing) existing.remove();
+
+  // Debug: Log status distribution in ALL tickets
+  const statusCounts = {};
+  allTickets.forEach(r => {
+    const st = r['Status'] || 'Unknown';
+    statusCounts[st] = (statusCounts[st] || 0) + 1;
+  });
+  console.log('DEBUG: Total tickets in allTickets:', allTickets.length);
+  console.log('DEBUG: Status distribution in ALL tickets:', statusCounts);
+
+  // Use ALL tickets, not just pending
+  const filtered = allTickets.filter(r => (r['VoC L1'] || '').trim() === vocL1Label);
+  console.log('DEBUG: Tickets matching VOC L1 "' + vocL1Label + '":', filtered.length);
+
+  // Log status distribution in filtered tickets
+  const filteredStatusCounts = {};
+  filtered.forEach(r => {
+    const st = r['Status'] || 'Unknown';
+    filteredStatusCounts[st] = (filteredStatusCounts[st] || 0) + 1;
+  });
+  console.log('DEBUG: Status distribution in filtered tickets:', filteredStatusCounts);
+
+  // Build enterprises map
+  const enterpriseMap = {};
+  filtered.forEach(r => {
+    const ent = (r['Enterprise Name'] || 'Unknown').trim();
+    if (!enterpriseMap[ent]) {
+      enterpriseMap[ent] = {
+        tickets: [],
+        status: new Set(),
+        priority: { Urgent: 0, High: 0, Medium: 0, Low: 0 },
+        csm: ''
+      };
+    }
+    enterpriseMap[ent].tickets.push(r);
+    const st = r['Status'];
+    if (st) enterpriseMap[ent].status.add(st);
+    const p = r['Priority'];
+    if (p && enterpriseMap[ent].priority[p] !== undefined) enterpriseMap[ent].priority[p]++;
+    if (!enterpriseMap[ent].csm) enterpriseMap[ent].csm = r['CSM Name'] || r['CSM Name (updated)'] || '—';
+  });
+
+  const enterpriseSorted = Object.entries(enterpriseMap)
+    .sort((a, b) => b[1].tickets.length - a[1].tickets.length)
+    .slice(0, 30);
+
+  const entRows = enterpriseSorted.map(([ent, data]) => {
+    const maxDays = data.tickets.length ? Math.max(...data.tickets.map(r => daysOpen(r) ?? 0)) : 0;
+    const statusStr = [...data.status].slice(0, 2).join(', ') || '—';
+    const priorityStr = [data.priority.Urgent && `${data.priority.Urgent}U`, data.priority.High && `${data.priority.High}H`].filter(Boolean).join(' ') || '—';
+    const ageColor = maxDays > 14 ? '#ef4444' : maxDays > 7 ? '#f59e0b' : '#10b981';
+
+    return `<tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:11px 12px;font-size:13px;font-weight:600;color:var(--text);">${ent.replace(/</g,'&lt;')}</td>
+      <td style="padding:11px 12px;text-align:center;font-size:13px;font-weight:700;color:var(--accent);">${data.tickets.length}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${priorityStr}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${statusStr}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${data.csm}</td>
+      <td style="padding:11px 12px;font-size:12px;color:${ageColor};font-weight:600;">${maxDays}d</td>
+    </tr>`;
+  }).join('');
+
+  const modal = document.createElement('div');
+  modal.id = 'voc-l1-modal';
+  modal.style.cssText = 'position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);';
+  modal.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;width:100%;max-width:1200px;max-height:90vh;overflow-y:auto;box-shadow:0 24px 64px rgba(0,0,0,0.3);">
+      <div style="padding:20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;background:var(--surface);">
+        <div style="font-size:18px;font-weight:700;color:var(--accent);">VOC L1: ${vocL1Label.replace(/</g,'&lt;')}</div>
+        <button onclick="document.getElementById('voc-l1-modal').remove()" style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);border-radius:8px;padding:6px 14px;font-size:13px;cursor:pointer;font-family:var(--font);">✕ Close</button>
+      </div>
+      <div style="padding:20px;">
+        <div style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:12px;">Total: ${filtered.length} tickets (all statuses) across ${enterpriseSorted.length} enterprises</div>
+        <div style="overflow-x:auto;">
+          <table class="ticket-table" style="margin:0;width:100%;">
+            <thead><tr style="background:var(--surface2);">
+              <th style="padding:10px 12px;text-align:left;">Enterprise</th>
+              <th style="padding:10px 12px;text-align:center;">Tickets</th>
+              <th style="padding:10px 12px;">Priority</th>
+              <th style="padding:10px 12px;">Status</th>
+              <th style="padding:10px 12px;">CSM</th>
+              <th style="padding:10px 12px;">Max Age</th>
+            </tr></thead>
+            <tbody>${entRows}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>`;
+
+  modal.addEventListener('click', e => {
+    if (e.target === modal) modal.remove();
+  });
+
+  document.body.appendChild(modal);
+}
+
+// ─── VOC TRENDS TAB (8-week weekly view) ──────────────────────────────────────
+function renderVocTrendsTab(pendingTickets, allTickets) {
+  const el = document.getElementById('detail-voctrends');
+  if (!el) return;
+
+  const EXCLUDE_L1 = ['','unspecified','n/a','na','none','not specified'];
+
+  // Get unique VOC L1 values
+  const allL1 = new Set();
+  pendingTickets.forEach(r => {
+    const v = (r['VoC L1'] || '').trim();
+    if (!EXCLUDE_L1.includes(v.toLowerCase()) && v) allL1.add(v);
+  });
+
+  // Sort by current count and get top 8
+  const l1Counts = {};
+  allL1.forEach(l1 => {
+    l1Counts[l1] = pendingTickets.filter(r => (r['VoC L1']||'').trim() === l1).length;
+  });
+  const topL1 = Array.from(allL1)
+    .sort((a, b) => (l1Counts[b] || 0) - (l1Counts[a] || 0))
+    .slice(0, 8);
+
+  // Define colors for VOC L1 lines
+  const VOC_COLORS = ['#8b5cf6','#3b82f6','#06b6d4','#10b981','#f59e0b','#ef4444','#ec4899','#f97316'];
+
+  // Generate last 8 weeks
+  const now = new Date();
+  const labels = [];
+  const weekDates = [];
+  for (let i = 7; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - (i * 7));
+    const weekEnd = new Date(d);
+    weekEnd.setDate(weekEnd.getDate() + 6);
+
+    const dateStart = d.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+    const dateEnd = weekEnd.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+    labels.push(`W${8-i}\n${dateStart}-${dateEnd}`);
+    weekDates.push({ start: new Date(d), end: new Date(weekEnd) });
+  }
+
+  // Build trend data for each VOC L1
+  const datasets = topL1.map((vocL1, idx) => {
+    const data = [];
+    weekDates.forEach(week => {
+      // Count tickets CREATED during this week that were still PENDING at week end
+      const count = allTickets.filter(t => {
+        if ((t['VoC L1'] || '').trim() !== vocL1) return false;
+        const created = t['Created time'] ? new Date(t['Created time']) : null;
+        if (!created) return false;
+        // Ticket must be created DURING this week
+        if (created < week.start || created > week.end) return false;
+        // Ticket must be still pending at end of week
+        const resolvedAt = t['Resolved at'] ? new Date(t['Resolved at']) : null;
+        if (resolvedAt && resolvedAt <= week.end) return false;
+        return true;
+      }).length;
+      data.push(count);
+    });
+    return {
+      label: vocL1,
+      data: data,
+      borderColor: VOC_COLORS[idx % VOC_COLORS.length],
+      backgroundColor: VOC_COLORS[idx % VOC_COLORS.length] + '18',
+      borderWidth: 3,
+      pointBackgroundColor: VOC_COLORS[idx % VOC_COLORS.length],
+      pointRadius: 6,
+      pointHoverRadius: 9,
+      pointBorderWidth: 2,
+      pointBorderColor: '#fff',
+      tension: 0.4,
+      fill: false,
+      vocL1: vocL1,
+      datalabels: { display: false }
+    };
+  });
+
+  const legendHTML = topL1.map((vocL1, idx) => {
+    const color = VOC_COLORS[idx % VOC_COLORS.length];
+    const count = l1Counts[vocL1] || 0;
+    return `<button onclick="drillDownVocL1Weekly('${vocL1.replace(/'/g, "\\'")}', window._vocWeeklyPendingTickets, window._vocWeeklyWeekDates, window._vocWeeklyAllTickets)" style="background:${color}22;border:2px solid ${color};color:${color};padding:8px 14px;border-radius:10px;font-size:12px;font-weight:600;cursor:pointer;margin:4px;transition:all 0.2s;" onmouseover="this.style.background='${color}44';this.style.transform='scale(1.05)'" onmouseout="this.style.background='${color}22';this.style.transform='scale(1)'">
+      <span style="display:inline-block;width:8px;height:8px;background:${color};border-radius:50%;margin-right:6px;vertical-align:middle;"></span>${vocL1.replace(/</g,'&lt;')} (${count})
+    </button>`;
+  }).join('');
+
+  const html = `
+    <div style="padding:20px 0;">
+      <div class="summary-banner" style="margin-bottom:18px;">
+        <div class="sb-main">
+          <div class="sb-label">VOC L1 Weekly Trend Analysis</div>
+          <div class="sb-value" style="color:var(--accent);">Last 8 Weeks</div>
+        </div>
+        <div class="sb-divider"></div>
+        <div style="font-size:12px;color:var(--muted);">Click any VOC category below to see VOC L2 breakdown and impacted enterprises</div>
+      </div>
+
+      <div class="chart-card" style="margin-bottom:18px;">
+        <div class="chart-title">VOC L1 Weekly Trend</div>
+        <div class="chart-canvas-wrap" style="height:340px;"><canvas id="chart-voc-l1-weekly"></canvas></div>
+      </div>
+
+      <div style="background:var(--surface2);border:1px solid var(--border);border-radius:14px;padding:16px;margin-bottom:18px;">
+        <div style="font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px;">Click a VOC L1 Category to Explore:</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
+          ${legendHTML}
+        </div>
+      </div>
+
+      <div id="voc-weekly-drill-panel" style="margin-bottom:18px;"></div>
+      <div id="voc-weekly-enterprises-panel" style="margin-bottom:18px;"></div>
+
+      <hr style="margin:32px 0;border:none;border-top:2px solid var(--border);"/>
+
+      <div style="font-size:18px;font-weight:700;color:var(--text);margin:24px 0 16px;">VOC L2 Themes</div>
+      <div id="voc-l2-table-container" style="margin-bottom:18px;"></div>
+    </div>
+  `;
+
+  el.innerHTML = html;
+
+  // Store datasets globally for click handler access
+  window._vocWeeklyDatasets = datasets;
+  window._vocWeeklyPendingTickets = pendingTickets;
+  window._vocWeeklyAllTickets = allTickets;
+  window._vocWeeklyWeekDates = weekDates;
+
+  // Render VOC L2 Trends
+  renderVocL2TrendsSection(pendingTickets, allTickets, weekDates);
+
+  // Create chart with proper click handler
+  const canvas = document.getElementById('chart-voc-l1-weekly');
+  if (!canvas) return;
+
+  const existingChart = Chart.getChart(canvas);
+  if (existingChart) existingChart.destroy();
+
+  const chart = new Chart(canvas, {
+    type: 'line',
+    plugins: [ChartDataLabels],
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      layout: { padding: { top: 20, bottom: 16, left: 0, right: 0 } },
+      interaction: { mode: 'nearest', intersect: false },
+      plugins: {
+        legend: {
+          display: true,
+          position: 'top',
+          labels: {
+            font: { size: 12, weight: '600' },
+            padding: 16,
+            usePointStyle: true,
+            boxWidth: 8,
+            cursor: 'pointer'
+          },
+          onClick: (e, legendItem, legend) => {
+            const datasetIdx = legendItem.datasetIndex;
+            const vocL1 = datasets[datasetIdx].vocL1;
+            showVocL1WeeklyDrill(vocL1, pendingTickets, weekDates);
+          }
+        },
+        tooltip: {
+          backgroundColor: 'rgba(0,0,0,0.9)',
+          padding: 12,
+          titleFont: { size: 13, weight: 'bold' },
+          bodyFont: { size: 12 },
+          borderColor: 'rgba(255,255,255,0.3)',
+          borderWidth: 1,
+          callbacks: {
+            label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y} tickets`,
+            afterLabel: () => '(Click legend to drill down)'
+          }
+        },
+        datalabels: { display: false }
+      },
+      scales: {
+        x: {
+          grid: { color: '#f1f5f9', drawBorder: true },
+          ticks: { font: { size: 10, weight: '500' }, color: '#64748b', maxRotation: 0 },
+          title: { display: true, text: 'Weeks', color: '#94a3b8', font: { size: 12 } }
+        },
+        y: {
+          beginAtZero: true,
+          grid: { color: '#f1f5f9' },
+          ticks: { stepSize: 5, font: { size: 12 }, color: '#64748b' },
+          title: { display: true, text: 'Pending Tickets', color: '#94a3b8', font: { size: 12 } }
+        }
+      }
+    }
+  });
+}
+
+function showVocL1WeeklyDrill(vocL1Label, tickets, weekDates) {
+  const EXCLUDE_L2 = ['','others','other','unspecified','n/a','none'];
+  const filtered = tickets.filter(r => (r['VoC L1'] || '').trim() === vocL1Label);
+
+  // VOC L2 breakdown
+  const l2Map = {};
+  filtered.forEach(r => {
+    const v = (r['VoC L2'] || '').trim();
+    if (!EXCLUDE_L2.includes(v.toLowerCase()) && v) {
+      if (!l2Map[v]) l2Map[v] = { count: 0, tickets: [] };
+      l2Map[v].count++;
+      l2Map[v].tickets.push(r);
+    }
+  });
+  const l2Sorted = Object.entries(l2Map).sort((a, b) => b[1].count - a[1].count).slice(0, 8);
+
+  // Enterprise breakdown
+  const enterpriseMap = {};
+  filtered.forEach(r => {
+    const ent = (r['Enterprise Name'] || 'Unknown').trim();
+    if (!enterpriseMap[ent]) {
+      enterpriseMap[ent] = {
+        tickets: [],
+        vocL2s: new Set(),
+        priority: { Urgent: 0, High: 0, Medium: 0, Low: 0 },
+        csm: ''
+      };
+    }
+    enterpriseMap[ent].tickets.push(r);
+    const l2 = (r['VoC L2'] || '').trim();
+    if (l2) enterpriseMap[ent].vocL2s.add(l2);
+    const p = r['Priority'];
+    if (p && enterpriseMap[ent].priority[p] !== undefined) enterpriseMap[ent].priority[p]++;
+    if (!enterpriseMap[ent].csm) enterpriseMap[ent].csm = r['CSM Name'] || r['CSM Name (updated)'] || '';
+  });
+
+  const enterpriseSorted = Object.entries(enterpriseMap)
+    .sort((a, b) => b[1].tickets.length - a[1].tickets.length)
+    .slice(0, 20);
+
+  // Render L2 panel
+  const panel = document.getElementById('voc-weekly-drill-panel');
+  if (!panel) return;
+
+  let l2HTML = '';
+  if (l2Sorted.length) {
+    l2HTML = `<div class="chart-card" style="margin-bottom:18px;">
+      <div class="chart-title">Top VOC L2 for <span style="color:#8b5cf6;">${vocL1Label.replace(/</g,'&lt;')}</span></div>
+      <div class="chart-canvas-wrap" style="height:240px;"><canvas id="chart-voc-l2-weekly"></canvas></div>
+    </div>`;
+    panel.innerHTML = l2HTML;
+
+    renderChart('chart-voc-l2-weekly', 'bar',
+      l2Sorted.map(e => e[0]),
+      [{ data: l2Sorted.map(e => e[1].count), backgroundColor: '#06b6d4bb', borderColor: '#06b6d4', borderWidth: 2, borderRadius: 4 }],
+      { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { grid: { color: '#e2e8f0' }, ticks: { color: '#64748b' } }, y: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11 } } } } }
+    );
+  } else {
+    panel.innerHTML = `<div class="chart-card"><div class="chart-title">VoC L2 for ${vocL1Label.replace(/</g,'&lt;')}</div><div style="color:var(--muted);font-size:13px;padding:12px 0;">No L2 data available.</div></div>`;
+  }
+
+  // Render enterprises panel
+  const entPanel = document.getElementById('voc-weekly-enterprises-panel');
+  if (!entPanel) return;
+
+  const entRows = enterpriseSorted.map(([ent, data]) => {
+    const maxDays = data.tickets.length ? Math.max(...data.tickets.map(r => daysOpen(r) ?? 0)) : 0;
+    const l2List = [...data.vocL2s].slice(0, 3).join(', ') || '—';
+    const priorityStr = [data.priority.Urgent && `${data.priority.Urgent}U`, data.priority.High && `${data.priority.High}H`].filter(Boolean).join(' ') || '—';
+    const ageColor = maxDays > 14 ? 'var(--red)' : maxDays > 7 ? 'var(--amber)' : 'var(--green)';
+
+    return `<tr style="border-bottom:1px solid var(--border);" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''">
+      <td style="padding:11px 12px;font-size:13px;font-weight:600;color:var(--text);">${ent.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</td>
+      <td style="padding:11px 12px;text-align:center;font-size:13px;font-weight:700;color:var(--accent);">${data.tickets.length}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${priorityStr}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${l2List}</td>
+      <td style="padding:11px 12px;font-size:12px;color:var(--muted);">${data.csm || '—'}</td>
+      <td style="padding:11px 12px;font-size:12px;color:${ageColor};font-weight:600;">${maxDays}d</td>
+    </tr>`;
+  }).join('');
+
+  entPanel.innerHTML = `
+    <div class="chart-card">
+      <div class="chart-title">🏢 Impacted Enterprises for <span style="color:#8b5cf6;">${vocL1Label.replace(/</g,'&lt;')}</span></div>
+      <div style="font-size:11px;color:var(--muted);margin-bottom:12px;padding:0 2px;">${enterpriseSorted.length} enterprises with ${filtered.length} pending tickets</div>
+      <div style="overflow-x:auto;">
+        <table class="ticket-table" style="margin:0;">
+          <thead><tr>
+            <th style="padding:8px 12px;text-align:left;">Enterprise</th>
+            <th style="padding:8px 12px;text-align:center;">Tickets</th>
+            <th style="padding:8px 12px;">Priority</th>
+            <th style="padding:8px 12px;">VoC L2</th>
+            <th style="padding:8px 12px;">CSM</th>
+            <th style="padding:8px 12px;">Max Age</th>
+          </tr></thead>
+          <tbody>${entRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 // ─── MONTHLY SUMMARY TAB ──────────────────────────────────────────────────────
 function renderSummaryTab(allTickets) {
   const el = document.getElementById('detail-summary');
@@ -2505,169 +3372,6 @@ function renderSummaryTab(allTickets) {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
         ${buildMonthCard(lastMonth, false)}
         ${buildMonthCard(thisMonth, true)}
-      </div>
-    </div>`;
-}
-
-// ─── SLACK REPORT ─────────────────────────────────────────────────────────────
-function renderSlackReport(allTickets) {
-  const el = document.getElementById('detail-slack-report');
-  if (!el) return;
-
-  const now = new Date();
-  const thisM = { y: now.getFullYear(), m: now.getMonth() };
-  const lastMDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastM = { y: lastMDate.getFullYear(), m: lastMDate.getMonth() };
-  const l2lMDate = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-  const l2lM = { y: l2lMDate.getFullYear(), m: l2lMDate.getMonth() };
-
-  const MONTH_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-
-  const pending = allTickets.filter(r => r['is_pending']);
-  const studioP = pending.filter(r => r['Product (Studio/Vini)'] === 'Studio');
-  const viniP   = pending.filter(r => r['Product (Studio/Vini)'] === 'Vini');
-
-  // Card 1 — Unresolved
-  const totalUnresolved  = pending.length;
-  const studioUnresolved = studioP.length;
-  const viniUnresolved   = viniP.length;
-
-  // Card 2 — Out of SLA (all priorities)
-  const outSLA       = pending.filter(r => getSLAStatus(r) === 'red');
-  const studioOutSLA = studioP.filter(r => getSLAStatus(r) === 'red');
-  const viniOutSLA   = viniP.filter(r => getSLAStatus(r) === 'red');
-
-  // Card 3 — Out of SLA Urgent + High only
-  const urgHighBreached = pending.filter(r => getSLAStatus(r) === 'red' && (r['Priority'] === 'Urgent' || r['Priority'] === 'High'));
-  const studioUH = studioP.filter(r => getSLAStatus(r) === 'red' && (r['Priority'] === 'Urgent' || r['Priority'] === 'High'));
-  const viniUH   = viniP.filter(r => getSLAStatus(r) === 'red' && (r['Priority'] === 'Urgent' || r['Priority'] === 'High'));
-
-  // Card 4 — SLA Adherence MTD (resolved tickets)
-  function slaAdherence(ym) {
-    const resolved = allTickets.filter(r => {
-      const ra = r['Resolved at']; if (!ra) return false;
-      const d = new Date(ra); if (isNaN(d)) return false;
-      return d.getFullYear() === ym.y && d.getMonth() === ym.m;
-    });
-    if (!resolved.length) return { rate: null, total: 0 };
-    const within = resolved.filter(r => (r['Resolution status'] || '').toLowerCase().includes('within'));
-    return { rate: Math.round(within.length / resolved.length * 100), total: resolved.length };
-  }
-  const mtd  = slaAdherence(thisM);
-  const lm   = slaAdherence(lastM);
-  const l2lm = slaAdherence(l2lM);
-
-  // Top 5 oldest — Studio & Vini
-  function top5Oldest(tickets) {
-    return [...tickets]
-      .filter(r => daysOpen(r) !== null)
-      .sort((a, b) => (daysOpen(b) ?? 0) - (daysOpen(a) ?? 0))
-      .slice(0, 5);
-  }
-  const studioOldest = top5Oldest(studioP);
-  const viniOldest   = top5Oldest(viniP);
-
-  function dependentName(r) {
-    if (r['Status'] === 'Pending on CS') return r['CSM Name'] || r['CSM Name (updated)'] || '—';
-    if (r['Status'] === 'Pending on OB') return r['OB Name'] || '—';
-    if (r['Status'] === 'Waiting on Product') return 'Product Team';
-    if (r['Status'] === 'Waiting on third party') return 'Third Party';
-    if (r['Status'] === 'Pending L1 (Technical)') return 'L1 Tech';
-    if (r['Status'] === 'Pending L2 (Technical)') return 'L2 Tech';
-    return r['Status'] || '—';
-  }
-
-  function oldestRows(tickets) {
-    if (!tickets.length) return `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px;">No tickets</div>`;
-    return tickets.map((r, i) => {
-      const d = daysOpen(r) ?? 0;
-      const ageColor = d > 30 ? '#ef4444' : d > 14 ? '#f97316' : d > 7 ? '#f59e0b' : '#10b981';
-      const dep = dependentName(r);
-      const subj = (r['Subject'] || '—').slice(0, 45);
-      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);${i === tickets.length-1 ? 'border-bottom:none;' : ''}">
-        <div style="font-size:20px;font-weight:800;color:var(--border2);min-width:24px;text-align:center;">${i+1}</div>
-        <div style="flex:1;min-width:0;">
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;">
-            <a href="https://spyne.freshdesk.com/a/tickets/${r['Ticket ID']}" target="_blank" style="font-size:12px;font-weight:700;color:var(--accent);text-decoration:none;">#${r['Ticket ID']}</a>
-            ${prioBadge(r['Priority'])}
-          </div>
-          <div style="font-size:12px;color:var(--text);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${subj.replace(/</g,'&lt;')}</div>
-          <div style="font-size:11px;color:var(--muted);margin-top:2px;">Dependent: <strong style="color:var(--text);">${dep}</strong></div>
-        </div>
-        <div style="text-align:right;flex-shrink:0;">
-          <div style="font-size:22px;font-weight:800;color:${ageColor};line-height:1;">${d}d</div>
-          <div style="font-size:10px;color:var(--muted);">old</div>
-        </div>
-      </div>`;
-    }).join('');
-  }
-
-  function card(label, value, sub, color, icon) {
-    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;">
-      <div style="position:absolute;top:0;left:0;right:0;height:3px;background:${color};"></div>
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">${icon} ${label}</div>
-      <div style="font-size:48px;font-weight:800;color:${color};line-height:1;margin-bottom:8px;">${value}</div>
-      <div style="font-size:12px;color:var(--muted);">${sub}</div>
-    </div>`;
-  }
-
-  const dateStr = now.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Asia/Kolkata' });
-
-  el.innerHTML = `
-    <div style="max-width:800px;margin:0 auto;">
-      <!-- Header -->
-      <div style="background:linear-gradient(135deg,#1e1b4b,#312e81);border-radius:16px;padding:22px 28px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-        <div>
-          <div style="font-size:20px;font-weight:800;color:#fff;">📱 Daily Slack Report</div>
-          <div style="font-size:13px;color:rgba(255,255,255,.55);margin-top:3px;">${dateStr} · Support Pendency Summary</div>
-        </div>
-        <div style="display:flex;gap:8px;">
-          <span style="background:rgba(255,255,255,.15);color:#fff;border-radius:20px;padding:4px 14px;font-size:12px;font-weight:600;">Studio + Vini</span>
-        </div>
-      </div>
-
-      <!-- Cards row 1 -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;">
-        ${card('Unresolved Tickets', totalUnresolved,
-          `Studio <strong style="color:var(--text);">${studioUnresolved}</strong> &nbsp;·&nbsp; Vini <strong style="color:var(--text);">${viniUnresolved}</strong>`,
-          '#3b82f6', '🎫')}
-        ${card('Out of SLA', outSLA.length,
-          `Studio <strong style="color:#ef4444;">${studioOutSLA.length}</strong> &nbsp;·&nbsp; Vini <strong style="color:#ef4444;">${viniOutSLA.length}</strong>`,
-          '#ef4444', '🔴')}
-      </div>
-
-      <!-- Cards row 2 -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
-        ${card('Out of SLA — Urgent & High', urgHighBreached.length,
-          `Studio <strong style="color:#f97316;">${studioUH.length}</strong> &nbsp;·&nbsp; Vini <strong style="color:#f97316;">${viniUH.length}</strong>`,
-          '#f97316', '⚠️')}
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px 22px;position:relative;overflow:hidden;">
-          <div style="position:absolute;top:0;left:0;right:0;height:3px;background:#10b981;"></div>
-          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">✅ SLA Adherence — MTD</div>
-          <div style="font-size:48px;font-weight:800;color:#10b981;line-height:1;margin-bottom:8px;">${mtd.rate !== null ? mtd.rate + '%' : '—'}</div>
-          <div style="font-size:12px;color:var(--muted);">
-            Last Month <strong style="color:var(--text);">${lm.rate !== null ? lm.rate + '%' : '—'}</strong>
-            &nbsp;·&nbsp;
-            ${MONTH_SHORT[l2lM.m]} <strong style="color:var(--text);">${l2lm.rate !== null ? l2lm.rate + '%' : '—'}</strong>
-          </div>
-        </div>
-      </div>
-
-      <!-- Top 5 Oldest -->
-      <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:10px;">🕐 Top 5 Oldest Tickets</div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:20px;">
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
-          <div style="background:#eff6ff;border-bottom:1px solid #bfdbfe;padding:10px 14px;">
-            <span style="font-size:12px;font-weight:700;color:#1d4ed8;">🎬 Studio</span>
-          </div>
-          ${oldestRows(studioOldest)}
-        </div>
-        <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
-          <div style="background:#f0fdf4;border-bottom:1px solid #bbf7d0;padding:10px 14px;">
-            <span style="font-size:12px;font-weight:700;color:#15803d;">🚗 Vini</span>
-          </div>
-          ${oldestRows(viniOldest)}
-        </div>
       </div>
     </div>`;
 }
