@@ -889,6 +889,17 @@ function hoursOpen(r){
 // SLA thresholds: Urgent 6h | High 1d | Medium 5d | Low 10d
 // Color bands: Green=within SLA, Amber=slight, Orange=moderate, Red=breached
 function getSLAStatus(r){
+  const status = (r['Status'] || '').trim();
+
+  // For Resolved/Closed tickets, use historical Resolution status (locked in at resolution time)
+  if (status === 'Resolved' || status === 'Closed') {
+    const resolutionStatus = (r['Resolution status'] || '').trim();
+    if (resolutionStatus.toLowerCase().includes('violated')) return 'red';
+    if (resolutionStatus.toLowerCase().includes('within')) return 'green';
+    return null; // No resolution status data
+  }
+
+  // For Open/Pending tickets, use current time vs Due by
   const dueBy = r['Due by'];
   if (!dueBy) return null;
 
@@ -906,25 +917,25 @@ function getSLAStatus(r){
   // Simple SLA: Red = any overdue, Amber = within threshold ranges, Green = not yet due
   if (p === 'Urgent') {
     if (hoursUntilDue >= 0) return 'green';       // Not yet due
-    if (hoursUntilDue >= -72) return 'amber';     // Overdue 0-72 hours (6-48 hrs & 48-72 hrs)
+    if (hoursUntilDue >= -72) return 'amber';     // Overdue 0-72 hours
     return 'red';                                  // Overdue >72 hours
   }
 
   if (p === 'High') {
     if (daysUntilDue >= 0) return 'green';        // Not yet due
-    if (daysUntilDue >= -5) return 'amber';       // Overdue 0-5 days (1-3 days & 3-5 days)
+    if (daysUntilDue >= -5) return 'amber';       // Overdue 0-5 days
     return 'red';                                  // Overdue >5 days
   }
 
   if (p === 'Medium') {
     if (daysUntilDue >= 0) return 'green';        // Not yet due
-    if (daysUntilDue >= -10) return 'amber';      // Overdue 0-10 days (5-7 days & 7-10 days)
+    if (daysUntilDue >= -10) return 'amber';      // Overdue 0-10 days
     return 'red';                                  // Overdue >10 days
   }
 
   if (p === 'Low') {
     if (daysUntilDue >= 0) return 'green';        // Not yet due
-    if (daysUntilDue >= -30) return 'amber';      // Overdue 0-30 days (15-20 days & 20-30 days)
+    if (daysUntilDue >= -30) return 'amber';      // Overdue 0-30 days
     return 'red';                                  // Overdue >30 days
   }
 
