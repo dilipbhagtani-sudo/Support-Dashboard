@@ -996,7 +996,7 @@ function renderProductOverview(product, containerId, tickets) {
   // ── KPI ──────────────────────────────────────────────────────────────────────
   const total    = tickets.length;
   const breached = tickets.filter(r => getSLAStatus(r) === 'red').length;
-  const atRisk   = tickets.filter(r => { const s=getSLAStatus(r); return s==='amber'||s==='orange'; }).length;
+  const atRisk   = tickets.filter(r => { const s=getSLAStatus(r); return s==='amber'; }).length;
   const onTrack  = tickets.filter(r => getSLAStatus(r) === 'green').length;
 
   // ── Priority config ───────────────────────────────────────────────────────────
@@ -1056,7 +1056,7 @@ function renderProductOverview(product, containerId, tickets) {
   const _kpiDefs = [
     { label:'Total Pending', value:total,    color,           sla:'all',   subtitle:'Open + On-Hold tickets', tix:tickets },
     { label:'SLA Breached',  value:breached, color:'#ef4444', sla:'red',   subtitle:'Overdue resolution',     tix:tickets.filter(r=>getSLAStatus(r)==='red') },
-    { label:'At Risk',       value:atRisk,   color:'#f59e0b', sla:'amber', subtitle:'Breach within 24 hrs',   tix:tickets.filter(r=>{const s=getSLAStatus(r);return s==='amber'||s==='orange';}) },
+    { label:'At Risk',       value:atRisk,   color:'#f59e0b', sla:'amber', subtitle:'Breach within 24 hrs',   tix:tickets.filter(r=>{const s=getSLAStatus(r);return s==='amber';}) },
     { label:'On Track',      value:onTrack,  color:'#10b981', sla:'green', subtitle:'Within SLA window',      tix:tickets.filter(r=>getSLAStatus(r)==='green') },
   ];
   const kpiCards = _kpiDefs.map(k => `
@@ -1074,7 +1074,7 @@ function renderProductOverview(product, containerId, tickets) {
     const ptix    = tickets.filter(r => r['Priority'] === p.label);
     const pTotal  = ptix.length;
     const pBreach = ptix.filter(r => getSLAStatus(r) === 'red').length;
-    const pAtRisk = ptix.filter(r => { const s=getSLAStatus(r); return s==='amber'||s==='orange'; }).length;
+    const pAtRisk = ptix.filter(r => { const s=getSLAStatus(r); return s==='amber'; }).length;
     const pct     = pTotal > 0 ? Math.round(pBreach / pTotal * 100) : 0;
     const barHTML = pTotal > 0
       ? `<div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;background:#e2e8f0;border-radius:6px;height:8px;min-width:80px;overflow:hidden;"><div style="width:${pct}%;background:${p.color};height:8px;border-radius:6px;"></div></div><span style="font-size:11px;font-weight:700;color:${pBreach>0?p.color:'var(--muted)'};">${pct}%</span></div>`
