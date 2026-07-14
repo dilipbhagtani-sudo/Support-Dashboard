@@ -1308,25 +1308,32 @@ function renderProductOverview(product, containerId, tickets) {
       labels.push(d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }));
 
       for (const p of PRIOS) {
-        // Count tickets where DUE DATE is specifically on this day AND are breached
+        // Count tickets that were in ACTIVE BREACH on this day
+        // A ticket is in breach if: due date passed AND still open OR just resolved (violated SLA)
         const count = allTix.filter(t => {
           if (t['Priority'] !== p) return false;
 
           const dueBy = t['Due by'] ? new Date(t['Due by']) : null;
           if (!dueBy || isNaN(dueBy.getTime())) return false;
 
-          // Ticket must have due date SPECIFICALLY on this day
-          if (dueBy < d || dueBy > dEnd) return false;
+          // Ticket must be due by this day (due date has passed)
+          if (dueBy > dEnd) return false;
 
           const status = (t['Status'] || '').trim();
+          const resolvedAt = t['Resolved at'] ? new Date(t['Resolved at']) : null;
 
-          // For resolved/closed tickets, check if violated SLA
+          // For resolved/closed tickets: show as breached from due date until resolution
           if (status === 'Resolved' || status === 'Closed') {
+            if (!resolvedAt) return false;
+            // Ticket must have violated SLA
             const resolutionStatus = (t['Resolution status'] || '').trim();
-            return resolutionStatus.toLowerCase().includes('violated');
+            if (!resolutionStatus.toLowerCase().includes('violated')) return false;
+            // Show as breached only until the day it was resolved
+            if (resolvedAt < d) return false; // Already resolved before this day
+            return true;
           }
 
-          // For open/pending tickets, they are breached if overdue
+          // For open/pending tickets: show as breached from due date onwards
           return true;
         }).length;
         trendData[p].push(count);
