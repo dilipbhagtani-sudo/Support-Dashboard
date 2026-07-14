@@ -1301,27 +1301,27 @@ function renderProductOverview(product, containerId, tickets) {
     for (let i = 13; i >= 0; i--) {
       const d = new Date(now);
       d.setDate(d.getDate() - i);
-      d.setHours(23, 59, 59, 999);
+      d.setHours(0, 0, 0, 0);
+      const dEnd = new Date(d);
+      dEnd.setHours(23, 59, 59, 999);
+
       labels.push(d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }));
 
       for (const p of PRIOS) {
+        // Count tickets where DUE DATE is specifically on this day AND are breached
         const count = allTix.filter(t => {
           if (t['Priority'] !== p) return false;
-          const created = t['Created time'] ? new Date(t['Created time']) : null;
-          if (!created || created > d) return false;
 
           const dueBy = t['Due by'] ? new Date(t['Due by']) : null;
           if (!dueBy || isNaN(dueBy.getTime())) return false;
 
-          // Check if ticket was overdue at end of this day
-          if (dueBy >= d) return false; // Not yet due at end of this day
+          // Ticket must have due date SPECIFICALLY on this day
+          if (dueBy < d || dueBy > dEnd) return false;
 
-          // Ticket is overdue at end of this day
-          const resolvedAt = t['Resolved at'] ? new Date(t['Resolved at']) : null;
           const status = (t['Status'] || '').trim();
 
-          // For resolved/closed tickets, check historical Resolution status
-          if ((status === 'Resolved' || status === 'Closed') && resolvedAt && resolvedAt <= d) {
+          // For resolved/closed tickets, check if violated SLA
+          if (status === 'Resolved' || status === 'Closed') {
             const resolutionStatus = (t['Resolution status'] || '').trim();
             return resolutionStatus.toLowerCase().includes('violated');
           }
