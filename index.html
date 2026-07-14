@@ -1309,12 +1309,25 @@ function renderProductOverview(product, containerId, tickets) {
           if (t['Priority'] !== p) return false;
           const created = t['Created time'] ? new Date(t['Created time']) : null;
           if (!created || created > d) return false;
-          const resolvedAt = t['Resolved at'] ? new Date(t['Resolved at']) : null;
-          if (resolvedAt && resolvedAt <= d) return false; // was resolved by end of this day
+
           const dueBy = t['Due by'] ? new Date(t['Due by']) : null;
-          if (dueBy && !isNaN(dueBy)) return dueBy < d;
-          // fallback if Due by not available
-          return (d - created) / 3_600_000 > (FD_SLA_HOURS[p] ?? 24);
+          if (!dueBy || isNaN(dueBy.getTime())) return false;
+
+          // Check if ticket was overdue at end of this day
+          if (dueBy >= d) return false; // Not yet due at end of this day
+
+          // Ticket is overdue at end of this day
+          const resolvedAt = t['Resolved at'] ? new Date(t['Resolved at']) : null;
+          const status = (t['Status'] || '').trim();
+
+          // For resolved/closed tickets, check historical Resolution status
+          if ((status === 'Resolved' || status === 'Closed') && resolvedAt && resolvedAt <= d) {
+            const resolutionStatus = (t['Resolution status'] || '').trim();
+            return resolutionStatus.toLowerCase().includes('violated');
+          }
+
+          // For open/pending tickets, they are breached if overdue
+          return true;
         }).length;
         trendData[p].push(count);
       }
