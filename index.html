@@ -236,6 +236,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
     <div class="tab" data-tab="csmpendency">CSM/OB Pendency <span class="tab-badge" id="badge-csmpendency">0</span></div>
     <div class="tab" data-tab="voctrends">📈 VOC Trends</div>
+    <div class="tab" data-tab="weeklysummary">📅 Weekly Summary</div>
     <div class="tab" data-tab="summary">📊 Monthly Summary</div>
   </div>
 
@@ -298,6 +299,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
   <div class="tab-content" id="tab-csmpendency"><div id="detail-csmpendency"></div></div>
   <div class="tab-content" id="tab-voctrends"><div id="detail-voctrends"></div></div>
+  <div class="tab-content" id="tab-weeklysummary"><div id="detail-weeklysummary"></div></div>
   <div class="tab-content" id="tab-summary"><div id="detail-summary"></div></div>
 
 </div>
@@ -977,6 +979,7 @@ function renderAll(){
   const filteredAllTickets = getFilteredAllTickets();
   renderVocTrendsTab(base, filteredAllTickets);
   renderSummaryTab(getFilteredAllTickets());
+  renderWeeklySummaryTab(getFilteredAllTickets());
   renderProductOverview('Studio','detail-studio-overview', base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
   renderProductOverview('Vini',  'detail-vini-overview',   base.filter(r=>r['Product (Studio/Vini)']==='Vini'));
 }
@@ -3143,7 +3146,178 @@ function showVocL1WeeklyDrill(vocL1Label, tickets, weekDates) {
     </div>`;
 }
 
-// ─── MONTHLY SUMMARY TAB ──────────────────────────────────────────────────────
+// ─── WEEKLY SUMMARY TAB (Week N: Last Month vs This Month) ──────────────────
+function renderWeeklySummaryTab(allTickets) {
+  const el = document.getElementById('detail-weeklysummary');
+  if (!el) return;
+  if (!allTickets || !allTickets.length) {
+    el.innerHTML = `<div class="empty-state"><span class="icon">📅</span><strong>No data yet</strong></div>`;
+    return;
+  }
+
+  const now = new Date();
+  const thisY = now.getFullYear(), thisM = now.getMonth();
+  const lastMonthDate = new Date(thisY, thisM - 1, 1);
+  const lastY = lastMonthDate.getFullYear(), lastM = lastMonthDate.getMonth();
+  const daysInThisMonth = new Date(thisY, thisM + 1, 0).getDate();
+  const daysInLastMonth = new Date(lastY, lastM + 1, 0).getDate();
+  const thisMonthLabel = MONTH_NAMES[thisM + 1] + ' ' + thisY;
+  const lastMonthLabel = MONTH_NAMES[lastM + 1] + ' ' + lastY;
+
+  const WEEK_RANGES = [
+    { n: 1, start: 1,  cap: 7 },
+    { n: 2, start: 8,  cap: 14 },
+    { n: 3, start: 15, cap: 21 },
+    { n: 4, start: 22, cap: 28 },
+    { n: 5, start: 29, cap: 31 },
+  ];
+
+  function ticketsInRange(y, m, start, end) {
+    return allTickets.filter(r => {
+      const ct = getCreatedTime(r); if (!ct) return false;
+      const d = new Date(ct); if (isNaN(d.getTime())) return false;
+      if (d.getFullYear() !== y || d.getMonth() !== m) return false;
+      const day = d.getDate();
+      return day >= start && day <= end;
+    });
+  }
+
+  function avgResHrs(tickets) {
+    const hrs = tickets.map(r => {
+      const ra = r['Resolved at']; if (!ra) return null;
+      const ct = getCreatedTime(r); if (!ct) return null;
+      const created = new Date(ct), resolved = new Date(ra);
+      if (isNaN(created) || isNaN(resolved) || resolved <= created) return null;
+      return (resolved - created) / 3600000;
+    }).filter(h => h !== null && h > 0);
+    if (!hrs.length) return null;
+    return hrs.reduce((s, h) => s + h, 0) / hrs.length;
+  }
+
+  function fmtHrs(h) {
+    if (h === null) return '—';
+    if (h < 24) return h.toFixed(1) + ' hrs';
+    return (h / 24).toFixed(1) + ' days';
+  }
+
+  function slaBar(withinCount, total, label, icon) {
+    if (!total) return `<div style="font-size:11px;color:var(--muted);">${icon} ${label}: —</div>`;
+    const pct = Math.round(withinCount / total * 100);
+    const color = pct >= 80 ? '#10b981' : pct >= 60 ? '#f59e0b' : '#ef4444';
+    return `<div style="margin-bottom:6px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
+        <span style="font-size:10px;color:var(--muted);">${icon} ${label}</span>
+        <span style="font-size:11px;font-weight:700;color:${color};">${pct}% <span style="font-size:9px;font-weight:400;color:var(--muted2);">(${withinCount}/${total})</span></span>
+      </div>
+      <div style="height:5px;background:var(--surface3);border-radius:3px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${color};border-radius:3px;transition:width .4s;"></div>
+      </div>
+    </div>`;
+  }
+
+  function trendArrow(curr, prev) {
+    if (prev === 0 && curr === 0) return '';
+    if (curr > prev) return `<span style="color:var(--red);font-size:11px;font-weight:600;">▲ +${curr - prev}</span>`;
+    if (curr < prev) return `<span style="color:var(--green);font-size:11px;font-weight:600;">▼ ${curr - prev}</span>`;
+    return `<span style="color:var(--muted);font-size:11px;">— flat</span>`;
+  }
+
+  // Build stats for one (year, month, weekRange) — null if that week doesn't exist in that month
+  function statsFor(y, m, wr, daysInM) {
+    if (wr.start > daysInM) return null;
+    const end = Math.min(wr.cap, daysInM);
+    const created = ticketsInRange(y, m, wr.start, end);
+    const createdAndResolved = created.filter(r => r['Resolved at']);
+    const avgHrs = avgResHrs(createdAndResolved);
+    const pendingCreated = created.filter(r => r['is_pending'] !== false);
+    function slaMetric(field) {
+      const tracked = created.filter(r => (r[field] || '').includes('SLA'));
+      const within = tracked.filter(r => r[field].includes('Within'));
+      return { within: within.length, total: tracked.length };
+    }
+    const frSLA = slaMetric('First response status');
+    const resSLA = slaMetric('Resolution status');
+    const studio = created.filter(r => r['Product (Studio/Vini)'] === 'Studio').length;
+    const vini = created.filter(r => r['Product (Studio/Vini)'] === 'Vini').length;
+    const prioCounts = {};
+    PRIO_ORDER.forEach(p => { prioCounts[p] = created.filter(r => r['Priority'] === p).length; });
+    return { sub: wr.start + '–' + end, created, createdAndResolved, avgHrs, pendingCreated, frSLA, resSLA, studio, vini, prioCounts };
+  }
+
+  const pairs = WEEK_RANGES
+    .map(wr => ({ n: wr.n, last: statsFor(lastY, lastM, wr, daysInLastMonth), thisM: statsFor(thisY, thisM, wr, daysInThisMonth) }))
+    .filter(p => p.last || p.thisM);
+
+  const PRIO_COLORS = { Urgent: '#ef4444', High: '#f59e0b', Medium: '#3b82f6', Low: '#64748b' };
+
+  function halfCardHTML(stats, accentColor, monthLabel) {
+    if (!stats) return `<div style="flex:1;min-width:0;padding:10px;color:var(--muted);font-size:11px;">No data (month too short)</div>`;
+    return `<div style="flex:1;min-width:0;">
+      <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:${accentColor};margin-bottom:8px;">${monthLabel} <span style="color:var(--muted);font-weight:400;text-transform:none;">(${stats.sub})</span></div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px;">
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px;">Created</div>
+          <div style="font-size:20px;font-weight:700;color:${accentColor};">${stats.created.length}</div>
+        </div>
+        <div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:8px 10px;">
+          <div style="font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:2px;">Resolved</div>
+          <div style="font-size:20px;font-weight:700;color:var(--green);">${stats.createdAndResolved.length}</div>
+          <div style="font-size:9px;color:var(--muted);margin-top:1px;">${stats.created.length ? Math.round(stats.createdAndResolved.length / stats.created.length * 100) : 0}% of created</div>
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-bottom:8px;">Avg resolution: <strong style="color:var(--text);">${fmtHrs(stats.avgHrs)}</strong> · ${stats.pendingCreated.length} still pending</div>
+      ${slaBar(stats.frSLA.within, stats.frSLA.total, 'First Response SLA', '⚡')}
+      ${slaBar(stats.resSLA.within, stats.resSLA.total, 'Resolution SLA', '✅')}
+      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;">
+        ${PRIO_ORDER.map(p => stats.prioCounts[p] ? `<span style="font-size:9px;font-weight:600;color:${PRIO_COLORS[p]};background:${PRIO_COLORS[p]}18;border-radius:10px;padding:1px 6px;">${p}: ${stats.prioCounts[p]}</span>` : '').join('')}
+        <span style="font-size:9px;color:#3b82f6;background:#3b82f618;border-radius:10px;padding:1px 6px;">Studio: ${stats.studio}</span>
+        <span style="font-size:9px;color:#10b981;background:#10b98118;border-radius:10px;padding:1px 6px;">Vini: ${stats.vini}</span>
+      </div>
+    </div>`;
+  }
+
+  const pairsHTML = pairs.map(p => {
+    const lastCreated = p.last ? p.last.created.length : 0;
+    const thisCreated = p.thisM ? p.thisM.created.length : 0;
+    const lastResolved = p.last ? p.last.createdAndResolved.length : 0;
+    const thisResolved = p.thisM ? p.thisM.createdAndResolved.length : 0;
+    return `<div class="chart-card" style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:13px;font-weight:700;color:var(--text);">Week ${p.n}</div>
+        <div style="display:flex;gap:16px;font-size:11px;color:var(--muted);">
+          <span>Created ${trendArrow(thisCreated, lastCreated)}</span>
+          <span>Resolved ${trendArrow(thisResolved, lastResolved)}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:18px;flex-wrap:wrap;">
+        ${halfCardHTML(p.last, 'var(--purple)', '📅 Last Month — ' + lastMonthLabel)}
+        <div style="width:1px;background:var(--border);align-self:stretch;"></div>
+        ${halfCardHTML(p.thisM, 'var(--accent)', '🗓 This Month — ' + thisMonthLabel)}
+      </div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="padding:20px 0;">
+      <div class="section-heading" style="margin-top:0;">📅 Weekly Breakdown — ${lastMonthLabel} vs ${thisMonthLabel}</div>
+      ${pairsHTML}
+      <div class="chart-card">
+        <div class="chart-title">Created vs Resolved by Week (Last Month vs This Month)</div>
+        <div class="chart-canvas-wrap" style="height:240px;"><canvas id="chart-weekly-summary"></canvas></div>
+      </div>
+    </div>`;
+
+  renderChart('chart-weekly-summary', 'bar',
+    pairs.map(p => 'Week ' + p.n),
+    [
+      { label: 'Last Mo. Created',  data: pairs.map(p => p.last ? p.last.created.length : 0),                    backgroundColor: '#8b5cf699', borderColor: '#8b5cf6', borderWidth: 1, borderRadius: 4 },
+      { label: 'Last Mo. Resolved', data: pairs.map(p => p.last ? p.last.createdAndResolved.length : 0),         backgroundColor: '#06b6d499', borderColor: '#06b6d4', borderWidth: 1, borderRadius: 4 },
+      { label: 'This Mo. Created',  data: pairs.map(p => p.thisM ? p.thisM.created.length : 0),                  backgroundColor: '#3b82f6bb', borderColor: '#3b82f6', borderWidth: 1, borderRadius: 4 },
+      { label: 'This Mo. Resolved', data: pairs.map(p => p.thisM ? p.thisM.createdAndResolved.length : 0),       backgroundColor: '#10b981bb', borderColor: '#10b981', borderWidth: 1, borderRadius: 4 },
+    ],
+    { plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } } } });
+}
+
 function renderSummaryTab(allTickets) {
   const el = document.getElementById('detail-summary');
   if (!el) return;
