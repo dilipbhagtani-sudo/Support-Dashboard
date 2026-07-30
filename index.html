@@ -177,7 +177,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <select class="filter-select" id="product-select" onchange="renderAll()">
         <option value="all">All Products</option>
         <option value="Studio">Studio</option>
-        <option value="Vini">Vini</option>
+        <option value="Sales">Sales</option>
+        <option value="Service">Service</option>
       </select>
       <select class="filter-select" id="priority-select" onchange="renderAll()">
         <option value="all">All Priorities</option>
@@ -217,14 +218,15 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <!-- TABS -->
   <div class="tabs">
     <div class="tab" data-tab="studio-overview">🎬 Studio Overview</div>
-    <div class="tab" data-tab="vini-overview">🚗 Vini Overview</div>
+    <div class="tab" data-tab="sales-overview">💼 Sales Overview</div>
+    <div class="tab" data-tab="service-overview">🛠️ Service Overview</div>
     <div class="tab active" data-tab="overview">Overview</div>
     <div class="tab" data-tab="psopen">PS Open <span class="tab-badge" id="badge-psopen">0</span></div>
     <div class="tab" data-tab="l1">L1 Pendency <span class="tab-badge" id="badge-l1">0</span></div>
     <div class="tab" data-tab="l2studio">L2 Studio <span class="tab-badge" id="badge-l2studio">0</span></div>
-    <div class="tab" data-tab="l2vini">L2 Vini <span class="tab-badge" id="badge-l2vini">0</span></div>
+    <div class="tab" data-tab="l2vini">L2 Sales/Service <span class="tab-badge" id="badge-l2vini">0</span></div>
     <div class="tab" data-tab="wstudio">Waiting Studio Product <span class="tab-badge" id="badge-wstudio">0</span></div>
-    <div class="tab" data-tab="wvini">Waiting Vini Product <span class="tab-badge" id="badge-wvini">0</span></div>
+    <div class="tab" data-tab="wvini">Waiting Sales/Service Product <span class="tab-badge" id="badge-wvini">0</span></div>
     <div class="tab" data-tab="production">Pending at Production <span class="tab-badge" id="badge-production">0</span></div>
     <div class="tab" data-tab="creative">Pending at Creative <span class="tab-badge" id="badge-creative">0</span></div>
     <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
@@ -242,8 +244,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 
   <!-- STUDIO OVERVIEW TAB -->
   <div class="tab-content" id="tab-studio-overview"><div id="detail-studio-overview"></div></div>
-  <!-- VINI OVERVIEW TAB -->
-  <div class="tab-content" id="tab-vini-overview"><div id="detail-vini-overview"></div></div>
+  <!-- SALES OVERVIEW TAB -->
+  <div class="tab-content" id="tab-sales-overview"><div id="detail-sales-overview"></div></div>
+  <!-- SERVICE OVERVIEW TAB -->
+  <div class="tab-content" id="tab-service-overview"><div id="detail-service-overview"></div></div>
 
   <div id="voc-l2-filter-banner"></div>
   <!-- OVERVIEW TAB -->
@@ -316,12 +320,12 @@ const CATEGORIES = [
     filter: r => r['Status'] === 'Pending L1 (Technical)' },
   { id:'l2studio',   label:'L2 Studio',               color:'#3b82f6',
     filter: r => r['Status'] === 'Pending L2 (Technical)' && r['Product (Studio/Vini)'] === 'Studio' },
-  { id:'l2vini',     label:'L2 Vini',                 color:'#06b6d4',
-    filter: r => r['Status'] === 'Pending L2 (Technical)' && r['Product (Studio/Vini)'] === 'Vini' },
+  { id:'l2vini',     label:'L2 Sales/Service',        color:'#06b6d4',
+    filter: r => r['Status'] === 'Pending L2 (Technical)' && (r['Product (Studio/Vini)'] === 'Sales' || r['Product (Studio/Vini)'] === 'Service') },
   { id:'wstudio',    label:'Waiting Studio Product',  color:'#f59e0b',
     filter: r => r['Status'] === 'Waiting on Product' && r['Product (Studio/Vini)'] === 'Studio' },
-  { id:'wvini',      label:'Waiting Vini Product',    color:'#10b981',
-    filter: r => r['Status'] === 'Waiting on Product' && r['Product (Studio/Vini)'] === 'Vini' },
+  { id:'wvini',      label:'Waiting Sales/Service Product', color:'#10b981',
+    filter: r => r['Status'] === 'Waiting on Product' && (r['Product (Studio/Vini)'] === 'Sales' || r['Product (Studio/Vini)'] === 'Service') },
   { id:'production', label:'Pending at Production',   color:'#ef4444',
     filter: r => r['Status'] === 'Pending at Production' },
   { id:'creative',   label:'Pending at Creative',     color:'#f97316',
@@ -980,17 +984,20 @@ function renderAll(){
   renderVocTrendsTab(base, filteredAllTickets);
   renderSummaryTab(getFilteredAllTickets());
   renderWeeklySummaryTab(getFilteredAllTickets());
-  renderProductOverview('Studio','detail-studio-overview', base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
-  renderProductOverview('Vini',  'detail-vini-overview',   base.filter(r=>r['Product (Studio/Vini)']==='Vini'));
+  renderProductOverview('Studio', 'detail-studio-overview',  base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
+  renderProductOverview('Sales',  'detail-sales-overview',   base.filter(r=>r['Product (Studio/Vini)']==='Sales'));
+  renderProductOverview('Service','detail-service-overview', base.filter(r=>r['Product (Studio/Vini)']==='Service'));
 }
 
-// ─── PRODUCT OVERVIEW (Studio / Vini) ────────────────────────────────────────
+// ─── PRODUCT OVERVIEW (Studio / Sales / Service) ─────────────────────────────
 function renderProductOverview(product, containerId, tickets) {
   const el = document.getElementById(containerId);
   if (!el) return;
 
-  const color  = product === 'Studio' ? '#3b82f6' : '#10b981';
-  const icon   = product === 'Studio' ? '🎬' : '🚗';
+  const PRODUCT_COLORS = { Studio: '#3b82f6', Sales: '#10b981', Service: '#f97316' };
+  const PRODUCT_ICONS  = { Studio: '🎬', Sales: '💼', Service: '🛠️' };
+  const color  = PRODUCT_COLORS[product] || '#64748b';
+  const icon   = PRODUCT_ICONS[product] || '📦';
   const today  = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
   const mnName = MONTH_NAMES[new Date().getMonth()+1] + ' ' + new Date().getFullYear();
   const pid    = product.toLowerCase();
@@ -1037,7 +1044,7 @@ function renderProductOverview(product, containerId, tickets) {
   ] : [
     { label:'PS Open',               status:'Open',                   color:'#ef4444' },
     { label:'L1 Pendency',           status:'Pending L1 (Technical)', color:'#8b5cf6' },
-    { label:'L2 Vini',               status:'Pending L2 (Technical)', color:'#06b6d4' },
+    { label:'L2 ' + product,         status:'Pending L2 (Technical)', color:'#06b6d4' },
     { label:'Waiting on Product',    status:'Waiting on Product',     color:'#f59e0b' },
     { label:'Pending at Production', status:'Pending at Production',  color:'#ef4444' },
     { label:'Pending at Creative',   status:'Pending at Creative',    color:'#f97316' },
@@ -1432,15 +1439,18 @@ function switchProdSubtab(pid, key, btn) {
 function renderOverview(buckets,total){
   document.getElementById('ov-total').textContent=total;
 
-  // Studio / Vini split next to total
+  // Studio / Sales / Service split next to total
   const allPendingForSplit=Object.values(buckets).flat();
   const studio=allPendingForSplit.filter(r=>r['Product (Studio/Vini)']==='Studio').length;
-  const vini=allPendingForSplit.filter(r=>r['Product (Studio/Vini)']==='Vini').length;
+  const sales=allPendingForSplit.filter(r=>r['Product (Studio/Vini)']==='Sales').length;
+  const service=allPendingForSplit.filter(r=>r['Product (Studio/Vini)']==='Service').length;
   const splitEl=document.getElementById('ov-product-split');
   if(splitEl) splitEl.innerHTML=
     `<span style="color:#3b82f6;font-weight:600;">Studio ${studio}</span>`+
     `<span style="color:var(--muted);margin:0 4px;">·</span>`+
-    `<span style="color:#10b981;font-weight:600;">Vini ${vini}</span>`;
+    `<span style="color:#10b981;font-weight:600;">Sales ${sales}</span>`+
+    `<span style="color:var(--muted);margin:0 4px;">·</span>`+
+    `<span style="color:#f97316;font-weight:600;">Service ${service}</span>`;
 
   // Breakdown pills (with Jira count from tag column)
   const TAG_COLS=['Tag','Tags','tag','tags'];
@@ -2056,7 +2066,8 @@ function renderAllTicketsTab(filtered){
   }
 
   const studio=filtered.filter(r=>r['Product (Studio/Vini)']==='Studio').length;
-  const vini=filtered.filter(r=>r['Product (Studio/Vini)']==='Vini').length;
+  const sales=filtered.filter(r=>r['Product (Studio/Vini)']==='Sales').length;
+  const service=filtered.filter(r=>r['Product (Studio/Vini)']==='Service').length;
 
   const frSLA=filtered.filter(r=>(r['First response status']||'').toLowerCase().includes('within'));
   const frVio=filtered.filter(r=>(r['First response status']||'').toLowerCase().includes('violated'));
@@ -2092,7 +2103,9 @@ function renderAllTicketsTab(filtered){
           <div style="font-size:12px;color:var(--muted);line-height:1.6;">
             <span style="color:#3b82f6;font-weight:600;">Studio ${studio}</span>
             <span style="color:var(--muted);margin:0 4px;">·</span>
-            <span style="color:#10b981;font-weight:600;">Vini ${vini}</span>
+            <span style="color:#10b981;font-weight:600;">Sales ${sales}</span>
+            <span style="color:var(--muted);margin:0 4px;">·</span>
+            <span style="color:#f97316;font-weight:600;">Service ${service}</span>
           </div>
         </div>
       </div>
@@ -2137,9 +2150,9 @@ function renderAllTicketsTab(filtered){
   renderChart('chart-at-prio','doughnut',PRIO_ORDER,[{data:prioData,backgroundColor:prioColors.map(c=>c+'cc'),borderColor:prioColors,borderWidth:1}],
     {plugins:{legend:{position:'right',labels:{color:'#94a3b8',font:{size:11},padding:10}}}});
 
-  const prodOther=filtered.filter(r=>r['Product (Studio/Vini)']!=='Studio'&&r['Product (Studio/Vini)']!=='Vini').length;
-  renderChart('chart-at-product','bar',['Studio','Vini','Other'],
-    [{data:[studio,vini,prodOther],backgroundColor:['#3b82f6cc','#10b981cc','#64748bcc'],borderColor:['#3b82f6','#10b981','#64748b'],borderWidth:1,borderRadius:6}],
+  const prodOther=filtered.filter(r=>r['Product (Studio/Vini)']!=='Studio'&&r['Product (Studio/Vini)']!=='Sales'&&r['Product (Studio/Vini)']!=='Service').length;
+  renderChart('chart-at-product','bar',['Studio','Sales','Service','Other'],
+    [{data:[studio,sales,service,prodOther],backgroundColor:['#3b82f6cc','#10b981cc','#f97316cc','#64748bcc'],borderColor:['#3b82f6','#10b981','#f97316','#64748b'],borderWidth:1,borderRadius:6}],
     {plugins:{legend:{display:false}},scales:{x:{grid:{display:false},ticks:{color:'#94a3b8'}},y:{grid:{color:'#e2e8f0'},ticks:{color:'#64748b'}}}});
 }
 
@@ -3238,10 +3251,11 @@ function renderWeeklySummaryTab(allTickets) {
     const frSLA = slaMetric('First response status');
     const resSLA = slaMetric('Resolution status');
     const studio = created.filter(r => r['Product (Studio/Vini)'] === 'Studio').length;
-    const vini = created.filter(r => r['Product (Studio/Vini)'] === 'Vini').length;
+    const sales = created.filter(r => r['Product (Studio/Vini)'] === 'Sales').length;
+    const service = created.filter(r => r['Product (Studio/Vini)'] === 'Service').length;
     const prioCounts = {};
     PRIO_ORDER.forEach(p => { prioCounts[p] = created.filter(r => r['Priority'] === p).length; });
-    return { sub: wr.start + '–' + end, created, createdAndResolved, avgHrs, pendingCreated, frSLA, resSLA, studio, vini, prioCounts };
+    return { sub: wr.start + '–' + end, created, createdAndResolved, avgHrs, pendingCreated, frSLA, resSLA, studio, sales, service, prioCounts };
   }
 
   const pairs = WEEK_RANGES
@@ -3271,7 +3285,8 @@ function renderWeeklySummaryTab(allTickets) {
       <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:8px;">
         ${PRIO_ORDER.map(p => stats.prioCounts[p] ? `<span style="font-size:9px;font-weight:600;color:${PRIO_COLORS[p]};background:${PRIO_COLORS[p]}18;border-radius:10px;padding:1px 6px;">${p}: ${stats.prioCounts[p]}</span>` : '').join('')}
         <span style="font-size:9px;color:#3b82f6;background:#3b82f618;border-radius:10px;padding:1px 6px;">Studio: ${stats.studio}</span>
-        <span style="font-size:9px;color:#10b981;background:#10b98118;border-radius:10px;padding:1px 6px;">Vini: ${stats.vini}</span>
+        <span style="font-size:9px;color:#10b981;background:#10b98118;border-radius:10px;padding:1px 6px;">Sales: ${stats.sales}</span>
+        <span style="font-size:9px;color:#f97316;background:#f9731618;border-radius:10px;padding:1px 6px;">Service: ${stats.service}</span>
       </div>
     </div>`;
   }
@@ -3471,7 +3486,8 @@ function renderSummaryTab(allTickets) {
 
     // Product split for created
     const studio = created.filter(r => r['Product (Studio/Vini)'] === 'Studio').length;
-    const vini = created.filter(r => r['Product (Studio/Vini)'] === 'Vini').length;
+    const sales = created.filter(r => r['Product (Studio/Vini)'] === 'Sales').length;
+    const service = created.filter(r => r['Product (Studio/Vini)'] === 'Service').length;
 
     // VoC L1 top 5 for created
     const vocMap = {};
@@ -3532,7 +3548,8 @@ function renderSummaryTab(allTickets) {
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
         ${prioHtml}
         <span style="font-size:11px;color:#3b82f6;background:#3b82f618;border-radius:10px;padding:1px 8px;">Studio: ${studio}</span>
-        <span style="font-size:11px;color:#10b981;background:#10b98118;border-radius:10px;padding:1px 8px;">Vini: ${vini}</span>
+        <span style="font-size:11px;color:#10b981;background:#10b98118;border-radius:10px;padding:1px 8px;">Sales: ${sales}</span>
+        <span style="font-size:11px;color:#f97316;background:#f9731618;border-radius:10px;padding:1px 8px;">Service: ${service}</span>
       </div>
 
       <!-- Top VoC L1 for created tickets -->
