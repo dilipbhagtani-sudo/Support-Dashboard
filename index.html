@@ -312,6 +312,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
 const FRESHDESK_API_URL = '/api/tickets';
 
+// ─── PRODUCT FIELD CLASSIFIER ─────────────────────────────────────────────────
+// Exact match only (case/whitespace-tolerant) — deliberately excludes "- ETA"
+// suffixed and legacy "Vini"/"Internal-Vini" variants from these buckets.
+function isStudioProduct(raw) {
+  return (raw || '').trim().toLowerCase() === 'studio';
+}
+function isSalesOrServiceProduct(raw) {
+  const v = (raw || '').trim().toLowerCase();
+  return v === 'sales' || v === 'service';
+}
+
 // ─── CATEGORIES ───────────────────────────────────────────────────────────────
 const CATEGORIES = [
   { id:'psopen',     label:'PS Open',                color:'#ec4899',
@@ -319,13 +330,13 @@ const CATEGORIES = [
   { id:'l1',         label:'L1 Pendency',             color:'#8b5cf6',
     filter: r => r['Status'] === 'Pending L1 (Technical)' },
   { id:'l2studio',   label:'L2 Studio',               color:'#3b82f6',
-    filter: r => r['Status'] === 'Pending L2 (Technical)' && r['Product (Studio/Vini)'] === 'Studio' },
+    filter: r => r['Status'] === 'Pending L2 (Technical)' && isStudioProduct(r['Product (Studio/Vini)']) },
   { id:'l2vini',     label:'L2 Sales/Service',        color:'#06b6d4',
-    filter: r => r['Status'] === 'Pending L2 (Technical)' && (r['Product (Studio/Vini)'] === 'Sales' || r['Product (Studio/Vini)'] === 'Service') },
+    filter: r => r['Status'] === 'Pending L2 (Technical)' && isSalesOrServiceProduct(r['Product (Studio/Vini)']) },
   { id:'wstudio',    label:'Waiting Studio Product',  color:'#f59e0b',
-    filter: r => r['Status'] === 'Waiting on Product' && r['Product (Studio/Vini)'] === 'Studio' },
+    filter: r => r['Status'] === 'Waiting on Product' && isStudioProduct(r['Product (Studio/Vini)']) },
   { id:'wvini',      label:'Waiting Sales/Service Product', color:'#10b981',
-    filter: r => r['Status'] === 'Waiting on Product' && (r['Product (Studio/Vini)'] === 'Sales' || r['Product (Studio/Vini)'] === 'Service') },
+    filter: r => r['Status'] === 'Waiting on Product' && isSalesOrServiceProduct(r['Product (Studio/Vini)']) },
   { id:'production', label:'Pending at Production',   color:'#ef4444',
     filter: r => r['Status'] === 'Pending at Production' },
   { id:'creative',   label:'Pending at Creative',     color:'#f97316',
