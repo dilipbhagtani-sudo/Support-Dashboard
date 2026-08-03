@@ -238,6 +238,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
     <div class="tab" data-tab="csmpendency">CSM/OB Pendency <span class="tab-badge" id="badge-csmpendency">0</span></div>
     <div class="tab" data-tab="voctrends">📈 VOC Trends</div>
+    <div class="tab" data-tab="volvoc1">🔢 Volume Trend VOC1</div>
+    <div class="tab" data-tab="volvoc2">🔢 Volume Trend VOC2</div>
     <div class="tab" data-tab="weeklysummary">📅 Weekly Summary</div>
     <div class="tab" data-tab="summary">📊 Monthly Summary</div>
   </div>
@@ -303,6 +305,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
   <div class="tab-content" id="tab-csmpendency"><div id="detail-csmpendency"></div></div>
   <div class="tab-content" id="tab-voctrends"><div id="detail-voctrends"></div></div>
+  <div class="tab-content" id="tab-volvoc1"><div id="detail-volvoc1"></div></div>
+  <div class="tab-content" id="tab-volvoc2"><div id="detail-volvoc2"></div></div>
   <div class="tab-content" id="tab-weeklysummary"><div id="detail-weeklysummary"></div></div>
   <div class="tab-content" id="tab-summary"><div id="detail-summary"></div></div>
 
@@ -993,6 +997,8 @@ function renderAll(){
   // Pass both filtered pending and filtered all tickets to VOC trends
   const filteredAllTickets = getFilteredAllTickets();
   renderVocTrendsTab(base, filteredAllTickets);
+  renderVolumeTrendTab('VoC L1', 'detail-volvoc1', filteredAllTickets);
+  renderVolumeTrendTab('VoC L2', 'detail-volvoc2', filteredAllTickets);
   renderSummaryTab(getFilteredAllTickets());
   renderWeeklySummaryTab(getFilteredAllTickets());
   renderProductOverview('Studio', 'detail-studio-overview',  base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
@@ -2873,6 +2879,91 @@ function showVocL1ModalDrill(vocL1Label, allTickets) {
   });
 
   document.body.appendChild(modal);
+}
+
+// ─── VOLUME TREND TAB (VoC L1 / VoC L2 — last 4 rolling weeks) ───────────────
+function renderVolumeTrendTab(fieldName, containerId, allTickets) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+
+  // Exclude "- ETA" product variants (e.g. "Studio - ETA", "Vini - ETA")
+  const scoped = (allTickets || []).filter(r => !/ETA/i.test(r['Product (Studio/Vini)'] || ''));
+
+  const now = new Date();
+  const WEEK_COUNT = 4;
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  // Oldest → newest; most recent window's end day is today
+  const weeks = [];
+  for (let i = WEEK_COUNT - 1; i >= 0; i--) {
+    const end = new Date(now); end.setDate(end.getDate() - i * 7); end.setHours(23, 59, 59, 999);
+    const start = new Date(end); start.setDate(start.getDate() - 6); start.setHours(0, 0, 0, 0);
+    weeks.push({ start, end, label: fmt(start) + '–' + fmt(end) });
+  }
+  const windowStart = weeks[0].start, windowEnd = weeks[weeks.length - 1].end;
+
+  const EXCLUDE_VALS = ['', 'unspecified', 'n/a', 'none'];
+  const groupMap = {};
+  scoped.forEach(r => {
+    const ct = getCreatedTime(r); if (!ct) return;
+    const d = new Date(ct); if (isNaN(d.getTime())) return;
+    if (d < windowStart || d > windowEnd) return;
+    const raw = (r[fieldName] || '').trim();
+    if (EXCLUDE_VALS.includes(raw.toLowerCase())) return;
+    const wi = weeks.findIndex(w => d >= w.start && d <= w.end);
+    if (wi === -1) return;
+    if (!groupMap[raw]) groupMap[raw] = { weekCounts: new Array(WEEK_COUNT).fill(0), total: 0 };
+    groupMap[raw].weekCounts[wi]++;
+    groupMap[raw].total++;
+  });
+
+  const rows = Object.entries(groupMap).sort((a, b) => b[1].total - a[1].total);
+  const grandTotal = rows.reduce((s, [, v]) => s + v.total, 0);
+  const weekTotals = weeks.map((_, wi) => rows.reduce((s, [, v]) => s + v.weekCounts[wi], 0));
+
+  if (!rows.length) {
+    el.innerHTML = `<div class="empty-state"><span class="icon">📊</span><strong>No data</strong><br>No tickets found for ${fieldName} in the last 4 weeks.</div>`;
+    return;
+  }
+
+  const headerCells = weeks.map(w => `<th style="text-align:center;">${w.label}</th>`).join('');
+  const totalRowCells = weekTotals.map(n => `<td style="text-align:center;font-weight:700;color:var(--accent);">${n}</td>`).join('');
+  const bodyRows = rows.map(([val, data]) => {
+    const cells = data.weekCounts.map(n => `<td style="text-align:center;color:${n ? 'var(--text)' : 'var(--muted2)'};">${n || '—'}</td>`).join('');
+    return `<tr>
+      <td>${val.replace(/</g, '&lt;')}</td>
+      ${cells}
+      <td style="text-align:center;font-weight:700;color:var(--accent);">${data.total}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="padding:20px 0;">
+      <div class="summary-banner" style="margin-bottom:18px;">
+        <div class="sb-main">
+          <div class="sb-label">Total ${fieldName} Volume (Last 4 Weeks)</div>
+          <div class="sb-value" style="color:var(--accent);">${grandTotal}</div>
+        </div>
+        <div class="sb-divider"></div>
+        <div style="font-size:12px;color:var(--muted);">${weeks[0].label} → ${weeks[weeks.length - 1].label} · All statuses · excludes "- ETA" tickets</div>
+      </div>
+      <div class="table-wrap">
+        <table class="ticket-table">
+          <thead><tr>
+            <th>${fieldName}</th>
+            ${headerCells}
+            <th style="text-align:center;">Total</th>
+          </tr></thead>
+          <tbody>
+            <tr style="background:var(--surface2);border-bottom:2px solid var(--border2);">
+              <td style="font-weight:700;color:var(--text);">Total</td>
+              ${totalRowCells}
+              <td style="text-align:center;font-weight:700;color:var(--accent);font-size:14px;">${grandTotal}</td>
+            </tr>
+            ${bodyRows}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 // ─── VOC TRENDS TAB (8-week weekly view) ──────────────────────────────────────
