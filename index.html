@@ -2911,28 +2911,45 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
     if (EXCLUDE_VALS.includes(raw.toLowerCase())) return;
     const wi = weeks.findIndex(w => d >= w.start && d <= w.end);
     if (wi === -1) return;
-    if (!groupMap[raw]) groupMap[raw] = { weekCounts: new Array(WEEK_COUNT).fill(0), total: 0 };
-    groupMap[raw].weekCounts[wi]++;
-    groupMap[raw].total++;
+    if (!groupMap[raw]) groupMap[raw] = { weekTickets: Array.from({ length: WEEK_COUNT }, () => []) };
+    groupMap[raw].weekTickets[wi].push(r);
   });
 
-  const rows = Object.entries(groupMap).sort((a, b) => b[1].total - a[1].total);
-  const grandTotal = rows.reduce((s, [, v]) => s + v.total, 0);
-  const weekTotals = weeks.map((_, wi) => rows.reduce((s, [, v]) => s + v.weekCounts[wi], 0));
+  const rows = Object.entries(groupMap)
+    .map(([val, data]) => ({ val, weekTickets: data.weekTickets, all: data.weekTickets.flat() }))
+    .sort((a, b) => b.all.length - a.all.length);
+  const grandTotalTickets = rows.flatMap(r => r.all);
+  const weekTotalTickets = weeks.map((_, wi) => rows.flatMap(r => r.weekTickets[wi]));
 
   if (!rows.length) {
     el.innerHTML = `<div class="empty-state"><span class="icon">📊</span><strong>No data</strong><br>No tickets found for ${fieldName} in the last 4 weeks.</div>`;
     return;
   }
 
+  // Store ticket arrays for click-through; keyed by index to avoid quoting issues with field values
+  if (!window._volTrendStore) window._volTrendStore = {};
+  const store = {};
+  window._volTrendStore[containerId] = store;
+  store['grand'] = grandTotalTickets;
+  weekTotalTickets.forEach((tix, wi) => { store['wk' + wi] = tix; });
+  rows.forEach((row, ri) => {
+    store['row' + ri] = row.all;
+    row.weekTickets.forEach((tix, wi) => { store['row' + ri + '_wk' + wi] = tix; });
+  });
+
+  function cellHTML(storeKey, count, extraStyle) {
+    if (!count) return `<td style="text-align:center;color:var(--muted2);${extraStyle||''}">—</td>`;
+    return `<td style="text-align:center;cursor:pointer;${extraStyle||''}" onclick="(function(){var t=(window._volTrendStore['${containerId}']||{})['${storeKey}']||[];showTicketViewerPanel(t,'${fieldName} — ${count} ticket(s)','var(--accent)');})()">${count}</td>`;
+  }
+
   const headerCells = weeks.map(w => `<th style="text-align:center;">${w.label}</th>`).join('');
-  const totalRowCells = weekTotals.map(n => `<td style="text-align:center;font-weight:700;color:var(--accent);">${n}</td>`).join('');
-  const bodyRows = rows.map(([val, data]) => {
-    const cells = data.weekCounts.map(n => `<td style="text-align:center;color:${n ? 'var(--text)' : 'var(--muted2)'};">${n || '—'}</td>`).join('');
+  const totalRowCells = weekTotalTickets.map((tix, wi) => cellHTML('wk' + wi, tix.length, 'font-weight:700;color:var(--accent);')).join('');
+  const bodyRows = rows.map((row, ri) => {
+    const cells = row.weekTickets.map((tix, wi) => cellHTML('row' + ri + '_wk' + wi, tix.length, tix.length ? 'color:var(--text);' : '')).join('');
     return `<tr>
-      <td>${val.replace(/</g, '&lt;')}</td>
+      <td>${row.val.replace(/</g, '&lt;')}</td>
       ${cells}
-      <td style="text-align:center;font-weight:700;color:var(--accent);">${data.total}</td>
+      ${cellHTML('row' + ri, row.all.length, 'font-weight:700;color:var(--accent);')}
     </tr>`;
   }).join('');
 
@@ -2941,10 +2958,10 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
       <div class="summary-banner" style="margin-bottom:18px;">
         <div class="sb-main">
           <div class="sb-label">Total ${fieldName} Volume (Last 4 Weeks)</div>
-          <div class="sb-value" style="color:var(--accent);">${grandTotal}</div>
+          <div class="sb-value" style="color:var(--accent);cursor:pointer;" onclick="(function(){var t=(window._volTrendStore['${containerId}']||{})['grand']||[];showTicketViewerPanel(t,'${fieldName} — All tickets (Last 4 Weeks)','var(--accent)');})()">${grandTotalTickets.length}</div>
         </div>
         <div class="sb-divider"></div>
-        <div style="font-size:12px;color:var(--muted);">${weeks[0].label} → ${weeks[weeks.length - 1].label} · All statuses · excludes "- ETA" tickets</div>
+        <div style="font-size:12px;color:var(--muted);">${weeks[0].label} → ${weeks[weeks.length - 1].label} · All statuses · excludes "- ETA" tickets · click any number to view tickets</div>
       </div>
       <div class="table-wrap">
         <table class="ticket-table">
@@ -2957,7 +2974,7 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
             <tr style="background:var(--surface2);border-bottom:2px solid var(--border2);">
               <td style="font-weight:700;color:var(--text);">Total</td>
               ${totalRowCells}
-              <td style="text-align:center;font-weight:700;color:var(--accent);font-size:14px;">${grandTotal}</td>
+              ${cellHTML('grand', grandTotalTickets.length, 'font-weight:700;color:var(--accent);font-size:14px;')}
             </tr>
             ${bodyRows}
           </tbody>
