@@ -240,6 +240,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="voctrends">📈 VOC Trends</div>
     <div class="tab" data-tab="volvoc1">🔢 Volume Trend VOC1</div>
     <div class="tab" data-tab="volvoc2">🔢 Volume Trend VOC2</div>
+    <div class="tab" data-tab="transferrate">🔁 Transfer Rate</div>
     <div class="tab" data-tab="weeklysummary">📅 Weekly Summary</div>
     <div class="tab" data-tab="summary">📊 Monthly Summary</div>
   </div>
@@ -307,6 +308,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-voctrends"><div id="detail-voctrends"></div></div>
   <div class="tab-content" id="tab-volvoc1"><div id="detail-volvoc1"></div></div>
   <div class="tab-content" id="tab-volvoc2"><div id="detail-volvoc2"></div></div>
+  <div class="tab-content" id="tab-transferrate"><div id="detail-transferrate"></div></div>
   <div class="tab-content" id="tab-weeklysummary"><div id="detail-weeklysummary"></div></div>
   <div class="tab-content" id="tab-summary"><div id="detail-summary"></div></div>
 
@@ -999,6 +1001,7 @@ function renderAll(){
   renderVocTrendsTab(base, filteredAllTickets);
   renderVolumeTrendTab('VoC L1', 'detail-volvoc1', filteredAllTickets);
   renderVolumeTrendTab('VoC L2', 'detail-volvoc2', filteredAllTickets);
+  renderTransferRateTab(filteredAllTickets);
   renderSummaryTab(getFilteredAllTickets());
   renderWeeklySummaryTab(getFilteredAllTickets());
   renderProductOverview('Studio', 'detail-studio-overview',  base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
@@ -2882,6 +2885,133 @@ function showVocL1ModalDrill(vocL1Label, allTickets) {
 }
 
 // ─── VOLUME TREND TAB (VoC L1 / VoC L2 — last 4 rolling weeks) ───────────────
+// ─── TRANSFER RATE TAB (Standard Mon–Sun weeks, last 8 weeks incl. current) ──
+function renderTransferRateTab(allTickets) {
+  const el = document.getElementById('detail-transferrate');
+  if (!el) return;
+  const tickets = allTickets || [];
+
+  function mondayOf(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  function isoWeekNumber(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  }
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  const WEEK_COUNT = 8;
+  const currentMonday = mondayOf(new Date());
+  const weeks = [];
+  for (let i = WEEK_COUNT - 1; i >= 0; i--) {
+    const start = new Date(currentMonday); start.setDate(start.getDate() - i * 7);
+    const end = new Date(start); end.setDate(end.getDate() + 6); end.setHours(23, 59, 59, 999);
+    weeks.push({ start, end, wn: isoWeekNumber(start), dateRange: fmt(start) + '–' + fmt(end) });
+  }
+  const windowStart = weeks[0].start, windowEnd = weeks[weeks.length - 1].end;
+
+  const weekBuckets = weeks.map(() => []);
+  tickets.forEach(r => {
+    const ct = getCreatedTime(r); if (!ct) return;
+    const d = new Date(ct); if (isNaN(d.getTime())) return;
+    if (d < windowStart || d > windowEnd) return;
+    const wi = weeks.findIndex(w => d >= w.start && d <= w.end);
+    if (wi === -1) return;
+    weekBuckets[wi].push(r);
+  });
+
+  const notBlank = v => !!(v && String(v).trim());
+  const pct = (n, d) => d ? Math.round(n / d * 100) : 0;
+
+  // Product filter (from the header dropdown) already scopes `tickets` — for Sales/Service,
+  // L2 rate is measured against PS directly rather than against L1.
+  const productFilter = (document.getElementById('product-select') || {}).value || 'all';
+  const l2AgainstPS = productFilter === 'Sales' || productFilter === 'Service';
+  const l2DenomLabel = l2AgainstPS ? 'of PS' : 'of L1';
+
+  const rows = weeks.map((w, wi) => {
+    const ps = weekBuckets[wi];
+    const l1 = ps.filter(r => notBlank(r['L1 Agent']));
+    const l2 = ps.filter(r => notBlank(r['Ticket POD']));
+    return { week: w, ps, l1, l2 };
+  });
+  const totalPS = rows.reduce((s, r) => s + r.ps.length, 0);
+  const totalL1 = rows.reduce((s, r) => s + r.l1.length, 0);
+  const totalL2 = rows.reduce((s, r) => s + r.l2.length, 0);
+  const totalL2Denom = l2AgainstPS ? totalPS : totalL1;
+
+  if (!window._transferRateStore) window._transferRateStore = {};
+  const store = {};
+  window._transferRateStore['detail-transferrate'] = store;
+  rows.forEach((r, ri) => { store['ps' + ri] = r.ps; store['l1' + ri] = r.l1; store['l2' + ri] = r.l2; });
+  store['totalps'] = rows.flatMap(r => r.ps);
+  store['totall1'] = rows.flatMap(r => r.l1);
+  store['totall2'] = rows.flatMap(r => r.l2);
+
+  function cell(storeKey, count, color) {
+    if (!count) return `<td style="text-align:center;color:var(--muted2);">—</td>`;
+    return `<td style="text-align:center;cursor:pointer;font-weight:600;color:${color};" onclick="(function(){var t=(window._transferRateStore['detail-transferrate']||{})['${storeKey}']||[];showTicketViewerPanel(t,'Transfer Rate — ${count} ticket(s)','${color}');})()">${count}</td>`;
+  }
+
+  const bodyRows = rows.map((r, ri) => {
+    const l2Denom = l2AgainstPS ? r.ps.length : r.l1.length;
+    return `<tr>
+      <td style="font-size:13px;">Week ${r.week.wn} <span style="color:var(--muted);font-size:11px;">(${r.week.dateRange})</span></td>
+      ${cell('ps' + ri, r.ps.length, 'var(--accent)')}
+      ${cell('l1' + ri, r.l1.length, '#8b5cf6')}
+      <td style="text-align:center;font-size:11px;color:var(--muted);">${r.ps.length ? pct(r.l1.length, r.ps.length) + '%' : '—'}</td>
+      ${cell('l2' + ri, r.l2.length, '#06b6d4')}
+      <td style="text-align:center;font-size:11px;color:var(--muted);">${l2Denom ? pct(r.l2.length, l2Denom) + '%' : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+    <div style="padding:20px 0;">
+      <div class="summary-banner" style="margin-bottom:18px;">
+        <div class="sb-main">
+          <div class="sb-label">Total Tickets Created — PS (Last 8 Weeks)</div>
+          <div class="sb-value" style="color:var(--accent);cursor:pointer;" onclick="(function(){var t=(window._transferRateStore['detail-transferrate']||{})['totalps']||[];showTicketViewerPanel(t,'PS — All tickets (Last 8 Weeks)','var(--accent)');})()">${totalPS}</div>
+        </div>
+        <div class="sb-divider"></div>
+        <div class="sb-breakdown">
+          <div class="sb-pill" style="border-color:#8b5cf633;color:#8b5cf6;cursor:pointer;" onclick="(function(){var t=(window._transferRateStore['detail-transferrate']||{})['totall1']||[];showTicketViewerPanel(t,'L1 — All tickets (Last 8 Weeks)','#8b5cf6');})()">L1: <strong>${totalL1}</strong> (${pct(totalL1, totalPS)}%)</div>
+          <div class="sb-pill" style="border-color:#06b6d433;color:#06b6d4;cursor:pointer;" onclick="(function(){var t=(window._transferRateStore['detail-transferrate']||{})['totall2']||[];showTicketViewerPanel(t,'L2 — All tickets (Last 8 Weeks)','#06b6d4');})()">L2: <strong>${totalL2}</strong> (${pct(totalL2, totalL2Denom)}% ${l2DenomLabel})</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${weeks[0].dateRange} → ${weeks[weeks.length - 1].dateRange} · Standard Monday–Sunday weeks (incl. current week) · click any number to view tickets</div>
+      <div class="table-wrap">
+        <table class="ticket-table">
+          <thead><tr>
+            <th>Week</th>
+            <th style="text-align:center;">PS</th>
+            <th style="text-align:center;">L1</th>
+            <th style="text-align:center;">L1 %</th>
+            <th style="text-align:center;">L2</th>
+            <th style="text-align:center;">L2 % <span style="font-weight:400;color:var(--muted2);">(${l2DenomLabel})</span></th>
+          </tr></thead>
+          <tbody>
+            ${bodyRows}
+            <tr style="background:var(--surface2);border-top:2px solid var(--border2);">
+              <td style="font-weight:700;color:var(--text);">Total</td>
+              ${cell('totalps', totalPS, 'var(--accent)')}
+              ${cell('totall1', totalL1, '#8b5cf6')}
+              <td style="text-align:center;font-size:11px;color:var(--muted);font-weight:700;">${pct(totalL1, totalPS)}%</td>
+              ${cell('totall2', totalL2, '#06b6d4')}
+              <td style="text-align:center;font-size:11px;color:var(--muted);font-weight:700;">${pct(totalL2, totalL2Denom)}%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function renderVolumeTrendTab(fieldName, containerId, allTickets) {
   const el = document.getElementById(containerId);
   if (!el) return;
