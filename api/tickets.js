@@ -207,6 +207,8 @@ function mapTicket(t, lookup = {}, agentMap = {}) {
     'Agent Name':               agentMap[t.responder_id]?.name || '',
     'Agent Email':              agentMap[t.responder_id]?.email || '',
     'Jira':                     cf.cf_jira_ticket || '',
+    'L1 Agent':                 cf.cf_l1_agent || '',
+    'Ticket POD':               cf.cf_ticket_pod || '',
     'Tags':                     tags,
     'Created time':             created,
     'Resolved at':              stats.resolved_at || '',
