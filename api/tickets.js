@@ -209,6 +209,7 @@ function mapTicket(t, lookup = {}, agentMap = {}) {
     'Jira':                     cf.cf_jira_ticket || '',
     'L1 Agent':                 cf.cf_l1_agent || '',
     'Ticket POD':               cf.cf_ticket_pod || '',
+    'RCA Description':         cf.cf_rca_description || '',
     'Tags':                     tags,
     'Created time':             created,
     'Resolved at':              stats.resolved_at || '',
