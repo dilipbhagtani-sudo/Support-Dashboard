@@ -241,6 +241,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="volvoc1">🔢 Volume Trend VOC1</div>
     <div class="tab" data-tab="volvoc2">🔢 Volume Trend VOC2</div>
     <div class="tab" data-tab="transferrate">🔁 Transfer Rate</div>
+    <div class="tab" data-tab="rca">🐛 RCA</div>
     <div class="tab" data-tab="weeklysummary">📅 Weekly Summary</div>
     <div class="tab" data-tab="summary">📊 Monthly Summary</div>
   </div>
@@ -309,6 +310,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-volvoc1"><div id="detail-volvoc1"></div></div>
   <div class="tab-content" id="tab-volvoc2"><div id="detail-volvoc2"></div></div>
   <div class="tab-content" id="tab-transferrate"><div id="detail-transferrate"></div></div>
+  <div class="tab-content" id="tab-rca"><div id="detail-rca"></div></div>
   <div class="tab-content" id="tab-weeklysummary"><div id="detail-weeklysummary"></div></div>
   <div class="tab-content" id="tab-summary"><div id="detail-summary"></div></div>
 
@@ -1002,6 +1004,7 @@ function renderAll(){
   renderVolumeTrendTab('VoC L1', 'detail-volvoc1', filteredAllTickets);
   renderVolumeTrendTab('VoC L2', 'detail-volvoc2', filteredAllTickets);
   renderTransferRateTab(filteredAllTickets);
+  renderRCATab(filteredAllTickets);
   renderSummaryTab(getFilteredAllTickets());
   renderWeeklySummaryTab(getFilteredAllTickets());
   renderProductOverview('Studio', 'detail-studio-overview',  base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
@@ -2886,6 +2889,153 @@ function showVocL1ModalDrill(vocL1Label, allTickets) {
 
 // ─── VOLUME TREND TAB (VoC L1 / VoC L2 — last 4 rolling weeks) ───────────────
 // ─── TRANSFER RATE TAB (Standard Mon–Sun weeks, last 8 weeks incl. current) ──
+// ─── RCA TAB (Bug tickets only — Standard Mon–Sun weeks, last 8 weeks incl. current) ─
+function renderRCATab(allTickets) {
+  const el = document.getElementById('detail-rca');
+  if (!el) return;
+
+  function mondayOf(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  function isoWeekNumber(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  }
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const pct = (n, d) => d ? Math.round(n / d * 100) : 0;
+
+  const WEEK_COUNT = 8;
+  const currentMonday = mondayOf(new Date());
+  const weeks = [];
+  for (let i = WEEK_COUNT - 1; i >= 0; i--) {
+    const start = new Date(currentMonday); start.setDate(start.getDate() - i * 7);
+    const end = new Date(start); end.setDate(end.getDate() + 6); end.setHours(23, 59, 59, 999);
+    weeks.push({ start, end, wn: isoWeekNumber(start), dateRange: fmt(start) + '–' + fmt(end) });
+  }
+  const windowStart = weeks[0].start, windowEnd = weeks[weeks.length - 1].end;
+
+  // Scope to Bug-type tickets only (the "ticket_type" field)
+  const bugTickets = (allTickets || []).filter(r => (r['Type'] || '').trim().toLowerCase() === 'bug');
+
+  // Valid RCA text: not blank, not "Na"/"N/A" variants, not a bare number placeholder, not too short to be meaningful
+  function isValidRCA(raw) {
+    const v = (raw || '').trim();
+    if (!v) return false;
+    const norm = v.toLowerCase().replace(/[.\s]/g, '');
+    if (['na', 'n/a', 'none', 'nil', 'null', 'nan'].includes(norm)) return false;
+    if (/^\d+$/.test(v)) return false;
+    if (v.length < 4) return false;
+    return true;
+  }
+
+  const weekBuckets = weeks.map(() => []);
+  bugTickets.forEach(r => {
+    const ct = getCreatedTime(r); if (!ct) return;
+    const d = new Date(ct); if (isNaN(d.getTime())) return;
+    if (d < windowStart || d > windowEnd) return;
+    const wi = weeks.findIndex(w => d >= w.start && d <= w.end);
+    if (wi === -1) return;
+    weekBuckets[wi].push(r);
+  });
+
+  const rows = weeks.map((w, wi) => {
+    const reported = weekBuckets[wi];
+    const solved = reported.filter(r => r['Resolved at']);
+    const pending = reported.filter(r => !r['Resolved at']);
+    const rcaShared = reported.filter(r => isValidRCA(r['RCA Description']));
+    const rcaNotShared = reported.filter(r => !isValidRCA(r['RCA Description']));
+    return { week: w, reported, solved, pending, rcaShared, rcaNotShared };
+  });
+  const totalReported = rows.reduce((s, r) => s + r.reported.length, 0);
+  const totalSolved = rows.reduce((s, r) => s + r.solved.length, 0);
+  const totalPending = rows.reduce((s, r) => s + r.pending.length, 0);
+  const totalRcaShared = rows.reduce((s, r) => s + r.rcaShared.length, 0);
+  const totalRcaNotShared = rows.reduce((s, r) => s + r.rcaNotShared.length, 0);
+
+  if (!totalReported) {
+    el.innerHTML = `<div class="empty-state"><span class="icon">🐛</span><strong>No Bug tickets</strong><br>No Bug-type tickets found in the last 8 weeks.</div>`;
+    return;
+  }
+
+  if (!window._rcaStore) window._rcaStore = {};
+  const store = {};
+  window._rcaStore['detail-rca'] = store;
+  rows.forEach((r, ri) => {
+    store['rep' + ri] = r.reported;
+    store['solved' + ri] = r.solved;
+    store['pending' + ri] = r.pending;
+    store['rcashared' + ri] = r.rcaShared;
+    store['rcanot' + ri] = r.rcaNotShared;
+  });
+  store['totalrep'] = rows.flatMap(r => r.reported);
+  store['totalsolved'] = rows.flatMap(r => r.solved);
+  store['totalpending'] = rows.flatMap(r => r.pending);
+  store['totalrcashared'] = rows.flatMap(r => r.rcaShared);
+  store['totalrcanot'] = rows.flatMap(r => r.rcaNotShared);
+
+  function cell(storeKey, count, color) {
+    if (!count) return `<td style="text-align:center;color:var(--muted2);">—</td>`;
+    return `<td style="text-align:center;cursor:pointer;font-weight:600;color:${color};" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['${storeKey}']||[];showTicketViewerPanel(t,'RCA — ${count} ticket(s)','${color}');})()">${count}</td>`;
+  }
+
+  const bodyRows = rows.map((r, ri) => `<tr>
+      <td style="font-size:13px;">Week ${r.week.wn} <span style="color:var(--muted);font-size:11px;">(${r.week.dateRange})</span></td>
+      ${cell('rep' + ri, r.reported.length, 'var(--accent)')}
+      ${cell('solved' + ri, r.solved.length, 'var(--green)')}
+      ${cell('pending' + ri, r.pending.length, 'var(--amber)')}
+      ${cell('rcashared' + ri, r.rcaShared.length, '#8b5cf6')}
+      ${cell('rcanot' + ri, r.rcaNotShared.length, 'var(--red)')}
+    </tr>`).join('');
+
+  el.innerHTML = `
+    <div style="padding:20px 0;">
+      <div class="summary-banner" style="margin-bottom:18px;">
+        <div class="sb-main">
+          <div class="sb-label">Total Bug Reported (Last 8 Weeks)</div>
+          <div class="sb-value" style="color:var(--accent);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalrep']||[];showTicketViewerPanel(t,'Bug Reported — All (Last 8 Weeks)','var(--accent)');})()">${totalReported}</div>
+        </div>
+        <div class="sb-divider"></div>
+        <div class="sb-breakdown">
+          <div class="sb-pill" style="border-color:#10b98133;color:var(--green);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalsolved']||[];showTicketViewerPanel(t,'Solved — All (Last 8 Weeks)','var(--green)');})()">Solved: <strong>${totalSolved}</strong> (${pct(totalSolved, totalReported)}%)</div>
+          <div class="sb-pill" style="border-color:#f59e0b33;color:var(--amber);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalpending']||[];showTicketViewerPanel(t,'Pending — All (Last 8 Weeks)','var(--amber)');})()">Pending: <strong>${totalPending}</strong></div>
+          <div class="sb-pill" style="border-color:#8b5cf633;color:#8b5cf6;cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalrcashared']||[];showTicketViewerPanel(t,'RCA Shared — All (Last 8 Weeks)','#8b5cf6');})()">RCA Shared: <strong>${totalRcaShared}</strong> (${pct(totalRcaShared, totalReported)}%)</div>
+          <div class="sb-pill" style="border-color:#ef444433;color:var(--red);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalrcanot']||[];showTicketViewerPanel(t,'RCA Not Shared — All (Last 8 Weeks)','var(--red)');})()">RCA Not Shared: <strong>${totalRcaNotShared}</strong></div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${weeks[0].dateRange} → ${weeks[weeks.length - 1].dateRange} · Standard Monday–Sunday weeks (incl. current week) · Ticket Type = Bug only · click any number to view tickets</div>
+      <div class="table-wrap">
+        <table class="ticket-table">
+          <thead><tr>
+            <th>Week</th>
+            <th style="text-align:center;">Bug Reported</th>
+            <th style="text-align:center;">Solved Count</th>
+            <th style="text-align:center;">Pending Count</th>
+            <th style="text-align:center;">RCA Shared</th>
+            <th style="text-align:center;">RCA Not Shared</th>
+          </tr></thead>
+          <tbody>
+            ${bodyRows}
+            <tr style="background:var(--surface2);border-top:2px solid var(--border2);">
+              <td style="font-weight:700;color:var(--text);">Total</td>
+              ${cell('totalrep', totalReported, 'var(--accent)')}
+              ${cell('totalsolved', totalSolved, 'var(--green)')}
+              ${cell('totalpending', totalPending, 'var(--amber)')}
+              ${cell('totalrcashared', totalRcaShared, '#8b5cf6')}
+              ${cell('totalrcanot', totalRcaNotShared, 'var(--red)')}
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function renderTransferRateTab(allTickets) {
   const el = document.getElementById('detail-transferrate');
   if (!el) return;
