@@ -2890,9 +2890,10 @@ function showVocL1ModalDrill(vocL1Label, allTickets) {
 // ─── VOLUME TREND TAB (VoC L1 / VoC L2 — last 4 rolling weeks) ───────────────
 // ─── TRANSFER RATE TAB (Standard Mon–Sun weeks, last 8 weeks incl. current) ──
 // ─── RCA TAB (Bug tickets only — Standard Mon–Sun weeks, last 8 weeks incl. current) ─
-function renderRCATab(allTickets) {
-  const el = document.getElementById('detail-rca');
-  if (!el) return;
+// Builds one RCA section (summary banner + weekly table) scoped to a given ticket_type value.
+// Returns the section's HTML and populates window._rcaStore[storeId] for click-through.
+function buildRCASectionHTML(allTickets, opts) {
+  const { typeValue, icon, sectionLabel, storeId } = opts;
 
   function mondayOf(date) {
     const d = new Date(date);
@@ -2921,8 +2922,8 @@ function renderRCATab(allTickets) {
   }
   const windowStart = weeks[0].start, windowEnd = weeks[weeks.length - 1].end;
 
-  // Scope to Bug-type tickets only (the "ticket_type" field)
-  const bugTickets = (allTickets || []).filter(r => (r['Type'] || '').trim().toLowerCase() === 'bug');
+  // Scope to the requested ticket_type value only
+  const scopedTickets = (allTickets || []).filter(r => (r['Type'] || '').trim().toLowerCase() === typeValue.toLowerCase());
 
   // Valid RCA text: not blank, not "Na"/"N/A" variants, not a bare number placeholder, not too short to be meaningful
   function isValidRCA(raw) {
@@ -2936,7 +2937,7 @@ function renderRCATab(allTickets) {
   }
 
   const weekBuckets = weeks.map(() => []);
-  bugTickets.forEach(r => {
+  scopedTickets.forEach(r => {
     const ct = getCreatedTime(r); if (!ct) return;
     const d = new Date(ct); if (isNaN(d.getTime())) return;
     if (d < windowStart || d > windowEnd) return;
@@ -2959,14 +2960,15 @@ function renderRCATab(allTickets) {
   const totalRcaShared = rows.reduce((s, r) => s + r.rcaShared.length, 0);
   const totalRcaNotShared = rows.reduce((s, r) => s + r.rcaNotShared.length, 0);
 
-  if (!totalReported) {
-    el.innerHTML = `<div class="empty-state"><span class="icon">🐛</span><strong>No Bug tickets</strong><br>No Bug-type tickets found in the last 8 weeks.</div>`;
-    return;
-  }
-
   if (!window._rcaStore) window._rcaStore = {};
   const store = {};
-  window._rcaStore['detail-rca'] = store;
+  window._rcaStore[storeId] = store;
+
+  if (!totalReported) {
+    return `<div class="section-heading" style="margin-top:0;">${icon} ${sectionLabel} (Last 8 Weeks)</div>
+      <div class="empty-state"><span class="icon">${icon}</span><strong>No ${sectionLabel} tickets</strong><br>No matching tickets found in the last 8 weeks.</div>`;
+  }
+
   rows.forEach((r, ri) => {
     store['rep' + ri] = r.reported;
     store['solved' + ri] = r.solved;
@@ -2982,7 +2984,7 @@ function renderRCATab(allTickets) {
 
   function cell(storeKey, count, color) {
     if (!count) return `<td style="text-align:center;color:var(--muted2);">—</td>`;
-    return `<td style="text-align:center;cursor:pointer;font-weight:600;color:${color};" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['${storeKey}']||[];showTicketViewerPanel(t,'RCA — ${count} ticket(s)','${color}');})()">${count}</td>`;
+    return `<td style="text-align:center;cursor:pointer;font-weight:600;color:${color};" onclick="(function(){var t=(window._rcaStore['${storeId}']||{})['${storeKey}']||[];showTicketViewerPanel(t,'${sectionLabel} — ${count} ticket(s)','${color}');})()">${count}</td>`;
   }
 
   const bodyRows = rows.map((r, ri) => `<tr>
@@ -2994,45 +2996,58 @@ function renderRCATab(allTickets) {
       ${cell('rcanot' + ri, r.rcaNotShared.length, 'var(--red)')}
     </tr>`).join('');
 
+  return `
+    <div class="summary-banner" style="margin-bottom:18px;">
+      <div class="sb-main">
+        <div class="sb-label">Total ${sectionLabel} (Last 8 Weeks)</div>
+        <div class="sb-value" style="color:var(--accent);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['${storeId}']||{})['totalrep']||[];showTicketViewerPanel(t,'${sectionLabel} — All (Last 8 Weeks)','var(--accent)');})()">${totalReported}</div>
+      </div>
+      <div class="sb-divider"></div>
+      <div class="sb-breakdown">
+        <div class="sb-pill" style="border-color:#10b98133;color:var(--green);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['${storeId}']||{})['totalsolved']||[];showTicketViewerPanel(t,'Solved — All (Last 8 Weeks)','var(--green)');})()">Solved: <strong>${totalSolved}</strong> (${pct(totalSolved, totalReported)}%)</div>
+        <div class="sb-pill" style="border-color:#f59e0b33;color:var(--amber);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['${storeId}']||{})['totalpending']||[];showTicketViewerPanel(t,'Pending — All (Last 8 Weeks)','var(--amber)');})()">Pending: <strong>${totalPending}</strong></div>
+        <div class="sb-pill" style="border-color:#8b5cf633;color:#8b5cf6;cursor:pointer;" onclick="(function(){var t=(window._rcaStore['${storeId}']||{})['totalrcashared']||[];showTicketViewerPanel(t,'RCA Shared — All (Last 8 Weeks)','#8b5cf6');})()">RCA Shared: <strong>${totalRcaShared}</strong> (${pct(totalRcaShared, totalReported)}%)</div>
+        <div class="sb-pill" style="border-color:#ef444433;color:var(--red);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['${storeId}']||{})['totalrcanot']||[];showTicketViewerPanel(t,'RCA Not Shared — All (Last 8 Weeks)','var(--red)');})()">RCA Not Shared: <strong>${totalRcaNotShared}</strong></div>
+      </div>
+    </div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${weeks[0].dateRange} → ${weeks[weeks.length - 1].dateRange} · Standard Monday–Sunday weeks (incl. current week) · Ticket Type = ${typeValue} only · click any number to view tickets</div>
+    <div class="table-wrap">
+      <table class="ticket-table">
+        <thead><tr>
+          <th>Week</th>
+          <th style="text-align:center;">${sectionLabel}</th>
+          <th style="text-align:center;">Solved Count</th>
+          <th style="text-align:center;">Pending Count</th>
+          <th style="text-align:center;">RCA Shared</th>
+          <th style="text-align:center;">RCA Not Shared</th>
+        </tr></thead>
+        <tbody>
+          ${bodyRows}
+          <tr style="background:var(--surface2);border-top:2px solid var(--border2);">
+            <td style="font-weight:700;color:var(--text);">Total</td>
+            ${cell('totalrep', totalReported, 'var(--accent)')}
+            ${cell('totalsolved', totalSolved, 'var(--green)')}
+            ${cell('totalpending', totalPending, 'var(--amber)')}
+            ${cell('totalrcashared', totalRcaShared, '#8b5cf6')}
+            ${cell('totalrcanot', totalRcaNotShared, 'var(--red)')}
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function renderRCATab(allTickets) {
+  const el = document.getElementById('detail-rca');
+  if (!el) return;
+
+  const bugSection = buildRCASectionHTML(allTickets, { typeValue: 'Bug', icon: '🐛', sectionLabel: 'Bug Reported', storeId: 'detail-rca-bug' });
+  const outageSection = buildRCASectionHTML(allTickets, { typeValue: 'Outage', icon: '⚠️', sectionLabel: 'Outages Reported', storeId: 'detail-rca-outage' });
+
   el.innerHTML = `
     <div style="padding:20px 0;">
-      <div class="summary-banner" style="margin-bottom:18px;">
-        <div class="sb-main">
-          <div class="sb-label">Total Bug Reported (Last 8 Weeks)</div>
-          <div class="sb-value" style="color:var(--accent);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalrep']||[];showTicketViewerPanel(t,'Bug Reported — All (Last 8 Weeks)','var(--accent)');})()">${totalReported}</div>
-        </div>
-        <div class="sb-divider"></div>
-        <div class="sb-breakdown">
-          <div class="sb-pill" style="border-color:#10b98133;color:var(--green);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalsolved']||[];showTicketViewerPanel(t,'Solved — All (Last 8 Weeks)','var(--green)');})()">Solved: <strong>${totalSolved}</strong> (${pct(totalSolved, totalReported)}%)</div>
-          <div class="sb-pill" style="border-color:#f59e0b33;color:var(--amber);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalpending']||[];showTicketViewerPanel(t,'Pending — All (Last 8 Weeks)','var(--amber)');})()">Pending: <strong>${totalPending}</strong></div>
-          <div class="sb-pill" style="border-color:#8b5cf633;color:#8b5cf6;cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalrcashared']||[];showTicketViewerPanel(t,'RCA Shared — All (Last 8 Weeks)','#8b5cf6');})()">RCA Shared: <strong>${totalRcaShared}</strong> (${pct(totalRcaShared, totalReported)}%)</div>
-          <div class="sb-pill" style="border-color:#ef444433;color:var(--red);cursor:pointer;" onclick="(function(){var t=(window._rcaStore['detail-rca']||{})['totalrcanot']||[];showTicketViewerPanel(t,'RCA Not Shared — All (Last 8 Weeks)','var(--red)');})()">RCA Not Shared: <strong>${totalRcaNotShared}</strong></div>
-        </div>
-      </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">${weeks[0].dateRange} → ${weeks[weeks.length - 1].dateRange} · Standard Monday–Sunday weeks (incl. current week) · Ticket Type = Bug only · click any number to view tickets</div>
-      <div class="table-wrap">
-        <table class="ticket-table">
-          <thead><tr>
-            <th>Week</th>
-            <th style="text-align:center;">Bug Reported</th>
-            <th style="text-align:center;">Solved Count</th>
-            <th style="text-align:center;">Pending Count</th>
-            <th style="text-align:center;">RCA Shared</th>
-            <th style="text-align:center;">RCA Not Shared</th>
-          </tr></thead>
-          <tbody>
-            ${bodyRows}
-            <tr style="background:var(--surface2);border-top:2px solid var(--border2);">
-              <td style="font-weight:700;color:var(--text);">Total</td>
-              ${cell('totalrep', totalReported, 'var(--accent)')}
-              ${cell('totalsolved', totalSolved, 'var(--green)')}
-              ${cell('totalpending', totalPending, 'var(--amber)')}
-              ${cell('totalrcashared', totalRcaShared, '#8b5cf6')}
-              ${cell('totalrcanot', totalRcaNotShared, 'var(--red)')}
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      ${bugSection}
+      <div style="height:1px;background:var(--border);margin:28px 0;"></div>
+      ${outageSection}
     </div>`;
 }
 
