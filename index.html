@@ -1094,7 +1094,25 @@ function renderProductOverview(product, containerId, tickets) {
     { label:'Pending on CS',         status:'Pending on CS',         color:'#a855f7' },
     { label:'Pending on OB',        status:'Pending on OB',         color:'#d946ef' },
     { label:'Pending on Finance',   status:'Pending on Finance',    color:'#0891b2' },
+    { label:'Waiting on Third Party',status:'Waiting on third party', color:'#0ea5e9' },
   ];
+
+  // Catch-all so a ticket in a status not covered above (current or future) never
+  // silently disappears from the pills / status table below, even though it's
+  // already counted in the Total Pending KPI card up top. Grouped by its EXACT
+  // status text (not a generic "Other" bucket) so it's clear what's actually there.
+  const coveredStatuses = new Set(STATUS_CFG.map(s => s.status));
+  const otherByStatus = {};
+  tickets.forEach(r => {
+    if (coveredStatuses.has(r['Status'])) return;
+    const st = r['Status'] || '(No Status)';
+    (otherByStatus[st] = otherByStatus[st] || []).push(r);
+  });
+  const otherStatusList = Object.entries(otherByStatus).sort((a, b) => b[1].length - a[1].length);
+  if (!window._pOverviewOtherTickets) window._pOverviewOtherTickets = {};
+  window._pOverviewOtherTickets[pid] = otherByStatus;
+  const jsStr = s => String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const htmlEsc = s => String(s).replace(/</g, '&lt;');
 
   const PRIOS = ['Urgent','High','Medium','Low'];
 
@@ -1165,7 +1183,14 @@ function renderProductOverview(product, containerId, tickets) {
       ${byP.map((n,i) => `<td style="padding:11px 16px;text-align:center;font-size:13px;font-weight:${n?'600':'400'};color:${n?(i===0?'#ef4444':i===1?'#f59e0b':'var(--text)'):'var(--muted)'};">${n||'—'}</td>`).join('')}
       <td style="padding:11px 16px;text-align:center;font-size:14px;font-weight:700;color:${s.color};">${stix.length}</td>
     </tr>`;
-  }).filter(Boolean).join('');
+  }).filter(Boolean).join('') + otherStatusList.map(([st, stix]) => {
+    const byP = PRIOS.map(p => stix.filter(r => r['Priority']===p).length);
+    return `<tr style="border-bottom:1px solid var(--border);cursor:pointer;" onmouseover="this.style.background='var(--surface2)'" onmouseout="this.style.background=''" onclick="(function(){var m=(window._pOverviewOtherTickets||{})['${pid}']||{};var t=m['${jsStr(st)}']||[];showTicketViewerPanel(t,'${htmlEsc(st)} — ${product}','#64748b')})()">
+      <td style="padding:11px 16px;"><span style="display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--text);"><span style="width:8px;height:8px;border-radius:50%;background:#64748b;flex-shrink:0;display:inline-block;"></span>${htmlEsc(st)}</span></td>
+      ${byP.map((n,i) => `<td style="padding:11px 16px;text-align:center;font-size:13px;font-weight:${n?'600':'400'};color:${n?'var(--text)':'var(--muted)'};">${n||'—'}</td>`).join('')}
+      <td style="padding:11px 16px;text-align:center;font-size:14px;font-weight:700;color:#64748b;">${stix.length}</td>
+    </tr>`;
+  }).join('');
 
   // ── Oldest tickets list ───────────────────────────────────────────────────────
   const oldestTix = [...tickets]
@@ -1269,6 +1294,11 @@ function renderProductOverview(product, containerId, tickets) {
             <span style="font-size:13px;font-weight:700;color:${s.color};">${stix.length}</span>${jiraBadge}
           </div>`;
         }).join('')}
+        ${otherStatusList.map(([st, stix]) => `<div onclick="(function(){var m=(window._pOverviewOtherTickets||{})['${pid}']||{};var t=m['${jsStr(st)}']||[];showTicketViewerPanel(t,'${htmlEsc(st)} — ${product}','#64748b');})()" style="display:inline-flex;align-items:center;gap:6px;background:#64748b12;border:1.5px solid #64748b44;border-radius:999px;padding:5px 14px;cursor:pointer;transition:all .15s;" onmouseover="this.style.background='#64748b22'" onmouseout="this.style.background='#64748b12'">
+          <span style="width:7px;height:7px;border-radius:50%;background:#64748b;flex-shrink:0;display:inline-block;"></span>
+          <span style="font-size:12px;font-weight:500;color:var(--muted);">${htmlEsc(st)}:</span>
+          <span style="font-size:13px;font-weight:700;color:#64748b;">${stix.length}</span>
+        </div>`).join('')}
       </div>
 
       <!-- Priority-wise Daily Open+SLA-Breached Trend Chart -->
