@@ -179,6 +179,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
         <option value="Studio">Studio</option>
         <option value="Sales">Sales</option>
         <option value="Service">Service</option>
+        <option value="Integrations">Integrations</option>
+        <option value="Chatbot">Chatbot</option>
       </select>
       <select class="filter-select" id="priority-select" onchange="renderAll()">
         <option value="all">All Priorities</option>
@@ -220,6 +222,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="studio-overview">🎬 Studio Overview</div>
     <div class="tab" data-tab="sales-overview">💼 Sales Overview</div>
     <div class="tab" data-tab="service-overview">🛠️ Service Overview</div>
+    <div class="tab" data-tab="integrations-overview">🔌 Integrations Overview</div>
+    <div class="tab" data-tab="chatbot-overview">🤖 Chatbot Overview</div>
     <div class="tab active" data-tab="overview">Overview</div>
     <div class="tab" data-tab="psopen">PS Open <span class="tab-badge" id="badge-psopen">0</span></div>
     <div class="tab" data-tab="l1">L1 Pendency <span class="tab-badge" id="badge-l1">0</span></div>
@@ -252,6 +256,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-sales-overview"><div id="detail-sales-overview"></div></div>
   <!-- SERVICE OVERVIEW TAB -->
   <div class="tab-content" id="tab-service-overview"><div id="detail-service-overview"></div></div>
+  <!-- INTEGRATIONS OVERVIEW TAB -->
+  <div class="tab-content" id="tab-integrations-overview"><div id="detail-integrations-overview"></div></div>
+  <!-- CHATBOT OVERVIEW TAB -->
+  <div class="tab-content" id="tab-chatbot-overview"><div id="detail-chatbot-overview"></div></div>
 
   <div id="voc-l2-filter-banner"></div>
   <!-- OVERVIEW TAB -->
@@ -267,6 +275,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="sb-divider"></div>
       <div class="sb-breakdown" id="ov-breakdown"></div>
     </div>
+
+    <div class="section-heading" style="margin-top:0;">Product Status</div>
+    <div id="ov-product-status-section" style="margin-bottom:20px;"></div>
 
     <div class="section-heading">Click any card to view tickets</div>
     <div class="overview-grid" id="overview-grid"></div>
@@ -1007,9 +1018,11 @@ function renderAll(){
   renderRCATab(filteredAllTickets);
   renderSummaryTab(getFilteredAllTickets());
   renderWeeklySummaryTab(getFilteredAllTickets());
-  renderProductOverview('Studio', 'detail-studio-overview',  base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
-  renderProductOverview('Sales',  'detail-sales-overview',   base.filter(r=>r['Product (Studio/Vini)']==='Sales'));
-  renderProductOverview('Service','detail-service-overview', base.filter(r=>r['Product (Studio/Vini)']==='Service'));
+  renderProductOverview('Studio',       'detail-studio-overview',       base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
+  renderProductOverview('Sales',        'detail-sales-overview',        base.filter(r=>r['Product (Studio/Vini)']==='Sales'));
+  renderProductOverview('Service',      'detail-service-overview',      base.filter(r=>r['Product (Studio/Vini)']==='Service'));
+  renderProductOverview('Integrations', 'detail-integrations-overview', base.filter(r=>r['Product (Studio/Vini)']==='Integrations'));
+  renderProductOverview('Chatbot',      'detail-chatbot-overview',      base.filter(r=>r['Product (Studio/Vini)']==='Chatbot'));
 }
 
 // ─── PRODUCT OVERVIEW (Studio / Sales / Service) ─────────────────────────────
@@ -1017,8 +1030,8 @@ function renderProductOverview(product, containerId, tickets) {
   const el = document.getElementById(containerId);
   if (!el) return;
 
-  const PRODUCT_COLORS = { Studio: '#3b82f6', Sales: '#10b981', Service: '#f97316' };
-  const PRODUCT_ICONS  = { Studio: '🎬', Sales: '💼', Service: '🛠️' };
+  const PRODUCT_COLORS = { Studio: '#3b82f6', Sales: '#10b981', Service: '#f97316', Integrations: '#8b5cf6', Chatbot: '#ec4899' };
+  const PRODUCT_ICONS  = { Studio: '🎬', Sales: '💼', Service: '🛠️', Integrations: '🔌', Chatbot: '🤖' };
   const color  = PRODUCT_COLORS[product] || '#64748b';
   const icon   = PRODUCT_ICONS[product] || '📦';
   const today  = new Date().toLocaleDateString('en-IN',{day:'2-digit',month:'short',year:'numeric'});
@@ -1459,6 +1472,57 @@ function switchProdSubtab(pid, key, btn) {
 }
 
 // ─── OVERVIEW ─────────────────────────────────────────────────────────────────
+// ─── OVERVIEW: PER-PRODUCT STATUS (Total Pending / SLA Breached / At Risk / On Track) ─
+function renderProductStatusSection(allPendingForSplit) {
+  const el = document.getElementById('ov-product-status-section');
+  if (!el) return;
+
+  const PRODUCTS = [
+    { key: 'Studio',       label: 'Studio',       color: '#3b82f6', tab: 'studio-overview' },
+    { key: 'Sales',        label: 'Sales',        color: '#10b981', tab: 'sales-overview' },
+    { key: 'Service',      label: 'Service',      color: '#f97316', tab: 'service-overview' },
+    { key: 'Integrations', label: 'Integrations', color: '#8b5cf6', tab: 'integrations-overview' },
+    { key: 'Chatbot',      label: 'Chatbot',      color: '#ec4899', tab: 'chatbot-overview' },
+  ];
+
+  if (!window._prodStatusStore) window._prodStatusStore = {};
+  const store = window._prodStatusStore;
+
+  const sections = PRODUCTS.map((p, pi) => {
+    const tickets = allPendingForSplit.filter(r => r['Product (Studio/Vini)'] === p.key);
+    if (!tickets.length) return '';
+    const breached = tickets.filter(r => getSLAStatus(r) === 'red');
+    const atRisk   = tickets.filter(r => getSLAStatus(r) === 'amber');
+    const onTrack  = tickets.filter(r => getSLAStatus(r) === 'green');
+
+    const kpis = [
+      { label: 'Total Pending', value: tickets.length,  color: p.color,    subtitle: 'Open + On-Hold tickets', tix: tickets },
+      { label: 'SLA Breached',  value: breached.length,  color: '#ef4444', subtitle: 'Overdue resolution',     tix: breached },
+      { label: 'At Risk',       value: atRisk.length,    color: '#f59e0b', subtitle: 'Breach within 24 hrs',   tix: atRisk },
+      { label: 'On Track',      value: onTrack.length,   color: '#10b981', subtitle: 'Within SLA window',      tix: onTrack },
+    ];
+
+    const cardsHTML = kpis.map((k, ki) => {
+      const key = 'p' + pi + '_k' + ki;
+      store[key] = k.tix;
+      return `<div onclick="(function(){var t=(window._prodStatusStore||{})['${key}']||[];showTicketViewerPanel(t,'${p.label} — ${k.label}','${k.color}');})()"
+        style="background:${k.color}0d;border:1.5px solid ${k.color}33;border-radius:14px;padding:16px 20px;flex:1;min-width:140px;border-top:3px solid ${k.color};cursor:pointer;transition:box-shadow .15s;"
+        onmouseover="this.style.boxShadow='0 4px 16px ${k.color}33'" onmouseout="this.style.boxShadow='none'">
+        <div style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:${k.color};margin-bottom:8px;">${k.label}</div>
+        <div style="font-size:32px;font-weight:700;color:${k.color};line-height:1;">${k.value}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:5px;">${k.subtitle}</div>
+      </div>`;
+    }).join('');
+
+    return `<div style="margin-bottom:20px;">
+      <div style="font-size:15px;font-weight:700;color:${p.color};margin-bottom:10px;cursor:pointer;" onclick="switchTab('${p.tab}')">${p.label} →</div>
+      <div style="display:flex;gap:14px;flex-wrap:wrap;">${cardsHTML}</div>
+    </div>`;
+  }).join('');
+
+  el.innerHTML = sections || `<div style="color:var(--muted);font-size:13px;">No pending tickets for any product.</div>`;
+}
+
 function renderOverview(buckets,total){
   document.getElementById('ov-total').textContent=total;
 
@@ -1474,6 +1538,8 @@ function renderOverview(buckets,total){
     `<span style="color:#10b981;font-weight:600;">Sales ${sales}</span>`+
     `<span style="color:var(--muted);margin:0 4px;">·</span>`+
     `<span style="color:#f97316;font-weight:600;">Service ${service}</span>`;
+
+  renderProductStatusSection(allPendingForSplit);
 
   // Breakdown pills (with Jira count from tag column)
   const TAG_COLS=['Tag','Tags','tag','tags'];
@@ -2893,7 +2959,7 @@ function showVocL1ModalDrill(vocL1Label, allTickets) {
 // Builds one RCA section (summary banner + weekly table) scoped to a given ticket_type value.
 // Returns the section's HTML and populates window._rcaStore[storeId] for click-through.
 function buildRCASectionHTML(allTickets, opts) {
-  const { typeValue, icon, sectionLabel, storeId } = opts;
+  const { typeValue, icon, sectionLabel, storeId, showThemes } = opts;
 
   function mondayOf(date) {
     const d = new Date(date);
@@ -2987,6 +3053,32 @@ function buildRCASectionHTML(allTickets, opts) {
     return `<td style="text-align:center;cursor:pointer;font-weight:600;color:${color};" onclick="(function(){var t=(window._rcaStore['${storeId}']||{})['${storeKey}']||[];showTicketViewerPanel(t,'${sectionLabel} — ${count} ticket(s)','${color}');})()">${count}</td>`;
   }
 
+  // Top 2 recurring themes = most-repeated exact RCA text among a ticket set (blank/invalid already excluded upstream)
+  function computeTopThemes(tickets, n) {
+    const map = {};
+    tickets.forEach(r => {
+      const key = (r['RCA Description'] || '').trim();
+      if (!key) return;
+      if (!map[key]) map[key] = [];
+      map[key].push(r);
+    });
+    return Object.entries(map)
+      .sort((a, b) => b[1].length - a[1].length)
+      .slice(0, n)
+      .map(([text, tix]) => ({ text, tickets: tix }));
+  }
+  function themeCell(themes, keyPrefix) {
+    if (!themes.length) return `<td style="font-size:11px;color:var(--muted2);">—</td>`;
+    const lines = themes.map((t, ti) => {
+      const label = (t.text.length > 44 ? t.text.slice(0, 44) + '…' : t.text).replace(/</g, '&lt;');
+      const safeTitle = t.text.replace(/"/g, '&quot;').replace(/</g, '&lt;');
+      const storeKey = keyPrefix + '_' + ti;
+      store[storeKey] = t.tickets;
+      return `<div style="cursor:pointer;margin-bottom:3px;" title="${safeTitle}" onclick="event.stopPropagation();(function(){var tk=(window._rcaStore['${storeId}']||{})['${storeKey}']||[];showTicketViewerPanel(tk,'Theme — ${t.tickets.length} ticket(s)','#8b5cf6');})()"><span style="color:var(--muted2);">${ti + 1}.</span> ${label} <strong style="color:#8b5cf6;">(${t.tickets.length})</strong></div>`;
+    }).join('');
+    return `<td style="text-align:left;font-size:11px;max-width:260px;">${lines}</td>`;
+  }
+
   const bodyRows = rows.map((r, ri) => `<tr>
       <td style="font-size:13px;">Week ${r.week.wn} <span style="color:var(--muted);font-size:11px;">(${r.week.dateRange})</span></td>
       ${cell('rep' + ri, r.reported.length, 'var(--accent)')}
@@ -2994,6 +3086,7 @@ function buildRCASectionHTML(allTickets, opts) {
       ${cell('pending' + ri, r.pending.length, 'var(--amber)')}
       ${cell('rcashared' + ri, r.rcaShared.length, '#8b5cf6')}
       ${cell('rcanot' + ri, r.rcaNotShared.length, 'var(--red)')}
+      ${showThemes ? themeCell(computeTopThemes(r.rcaShared, 2), 'theme' + ri) : ''}
     </tr>`).join('');
 
   return `
@@ -3020,6 +3113,7 @@ function buildRCASectionHTML(allTickets, opts) {
           <th style="text-align:center;">Pending Count</th>
           <th style="text-align:center;">RCA Shared</th>
           <th style="text-align:center;">RCA Not Shared</th>
+          ${showThemes ? '<th style="text-align:left;">Top 2 Themes</th>' : ''}
         </tr></thead>
         <tbody>
           ${bodyRows}
@@ -3030,6 +3124,7 @@ function buildRCASectionHTML(allTickets, opts) {
             ${cell('totalpending', totalPending, 'var(--amber)')}
             ${cell('totalrcashared', totalRcaShared, '#8b5cf6')}
             ${cell('totalrcanot', totalRcaNotShared, 'var(--red)')}
+            ${showThemes ? themeCell(computeTopThemes(rows.flatMap(r => r.rcaShared), 2), 'themeTotal') : ''}
           </tr>
         </tbody>
       </table>
@@ -3041,7 +3136,7 @@ function renderRCATab(allTickets) {
   if (!el) return;
 
   const bugSection = buildRCASectionHTML(allTickets, { typeValue: 'Bug', icon: '🐛', sectionLabel: 'Bug Reported', storeId: 'detail-rca-bug' });
-  const outageSection = buildRCASectionHTML(allTickets, { typeValue: 'Outage', icon: '⚠️', sectionLabel: 'Outages Reported', storeId: 'detail-rca-outage' });
+  const outageSection = buildRCASectionHTML(allTickets, { typeValue: 'Outage', icon: '⚠️', sectionLabel: 'Outages Reported', storeId: 'detail-rca-outage', showThemes: true });
 
   el.innerHTML = `
     <div style="padding:20px 0;">
