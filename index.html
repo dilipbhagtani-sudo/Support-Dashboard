@@ -228,9 +228,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="psopen">PS Open <span class="tab-badge" id="badge-psopen">0</span></div>
     <div class="tab" data-tab="l1">L1 Pendency <span class="tab-badge" id="badge-l1">0</span></div>
     <div class="tab" data-tab="l2studio">L2 Studio <span class="tab-badge" id="badge-l2studio">0</span></div>
-    <div class="tab" data-tab="l2vini">L2 Sales/Service <span class="tab-badge" id="badge-l2vini">0</span></div>
+    <div class="tab" data-tab="l2vini">L2 Non-Studio <span class="tab-badge" id="badge-l2vini">0</span></div>
     <div class="tab" data-tab="wstudio">Waiting Studio Product <span class="tab-badge" id="badge-wstudio">0</span></div>
-    <div class="tab" data-tab="wvini">Waiting Sales/Service Product <span class="tab-badge" id="badge-wvini">0</span></div>
+    <div class="tab" data-tab="wvini">Waiting Non-Studio Product <span class="tab-badge" id="badge-wvini">0</span></div>
     <div class="tab" data-tab="production">Pending at Production <span class="tab-badge" id="badge-production">0</span></div>
     <div class="tab" data-tab="creative">Pending at Creative <span class="tab-badge" id="badge-creative">0</span></div>
     <div class="tab" data-tab="onhold">PS On Hold <span class="tab-badge" id="badge-onhold">0</span></div>
@@ -341,6 +341,12 @@ function isSalesOrServiceProduct(raw) {
   const v = (raw || '').trim().toLowerCase();
   return v === 'sales' || v === 'service';
 }
+// Catch-all for "everything that isn't Studio" — Sales, Service, Integrations, Chatbot,
+// and any future product value. Ensures every pending ticket lands in exactly one
+// L2 / Waiting-on-Product bucket instead of silently falling through both.
+function isNonStudioProduct(raw) {
+  return !isStudioProduct(raw);
+}
 
 // ─── CATEGORIES ───────────────────────────────────────────────────────────────
 const CATEGORIES = [
@@ -350,12 +356,12 @@ const CATEGORIES = [
     filter: r => r['Status'] === 'Pending L1 (Technical)' },
   { id:'l2studio',   label:'L2 Studio',               color:'#3b82f6',
     filter: r => r['Status'] === 'Pending L2 (Technical)' && isStudioProduct(r['Product (Studio/Vini)']) },
-  { id:'l2vini',     label:'L2 Sales/Service',        color:'#06b6d4',
-    filter: r => r['Status'] === 'Pending L2 (Technical)' && isSalesOrServiceProduct(r['Product (Studio/Vini)']) },
+  { id:'l2vini',     label:'L2 Non-Studio',        color:'#06b6d4',
+    filter: r => r['Status'] === 'Pending L2 (Technical)' && isNonStudioProduct(r['Product (Studio/Vini)']) },
   { id:'wstudio',    label:'Waiting Studio Product',  color:'#f59e0b',
     filter: r => r['Status'] === 'Waiting on Product' && isStudioProduct(r['Product (Studio/Vini)']) },
-  { id:'wvini',      label:'Waiting Sales/Service Product', color:'#10b981',
-    filter: r => r['Status'] === 'Waiting on Product' && isSalesOrServiceProduct(r['Product (Studio/Vini)']) },
+  { id:'wvini',      label:'Waiting Non-Studio Product', color:'#10b981',
+    filter: r => r['Status'] === 'Waiting on Product' && isNonStudioProduct(r['Product (Studio/Vini)']) },
   { id:'production', label:'Pending at Production',   color:'#ef4444',
     filter: r => r['Status'] === 'Pending at Production' },
   { id:'creative',   label:'Pending at Creative',     color:'#f97316',
@@ -1003,7 +1009,7 @@ function renderAll(){
     const el=document.getElementById('badge-'+cat.id);
     if(el)el.textContent=buckets[cat.id].length;
   });
-  renderOverview(buckets,total);
+  renderOverview(buckets,total,base);
   CATEGORIES.forEach(cat=>renderDetail(cat,buckets[cat.id]));
   renderAllTicketsTab(base);
   renderEnterpriseTab(base);
@@ -1523,11 +1529,13 @@ function renderProductStatusSection(allPendingForSplit) {
   el.innerHTML = sections || `<div style="color:var(--muted);font-size:13px;">No pending tickets for any product.</div>`;
 }
 
-function renderOverview(buckets,total){
+function renderOverview(buckets,total,base){
   document.getElementById('ov-total').textContent=total;
 
-  // Studio / Sales / Service split next to total
-  const allPendingForSplit=Object.values(buckets).flat();
+  // Studio / Sales / Service split next to total — uses the full pending set (`base`), not the
+  // category buckets, so a ticket in a status with no dedicated bucket (e.g. "Waiting on third
+  // party") still counts here and in the Product Status section below.
+  const allPendingForSplit=base;
   const studio=allPendingForSplit.filter(r=>r['Product (Studio/Vini)']==='Studio').length;
   const sales=allPendingForSplit.filter(r=>r['Product (Studio/Vini)']==='Sales').length;
   const service=allPendingForSplit.filter(r=>r['Product (Studio/Vini)']==='Service').length;
