@@ -246,6 +246,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="volvoc2">🔢 Volume Trend VOC2</div>
     <div class="tab" data-tab="transferrate">🔁 Transfer Rate</div>
     <div class="tab" data-tab="rca">🐛 RCA</div>
+    <div class="tab" data-tab="okr">🎯 OKR</div>
     <div class="tab" data-tab="weeklysummary">📅 Weekly Summary</div>
     <div class="tab" data-tab="summary">📊 Monthly Summary</div>
   </div>
@@ -322,6 +323,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-volvoc2"><div id="detail-volvoc2"></div></div>
   <div class="tab-content" id="tab-transferrate"><div id="detail-transferrate"></div></div>
   <div class="tab-content" id="tab-rca"><div id="detail-rca"></div></div>
+  <div class="tab-content" id="tab-okr"><div id="detail-okr"></div></div>
   <div class="tab-content" id="tab-weeklysummary"><div id="detail-weeklysummary"></div></div>
   <div class="tab-content" id="tab-summary"><div id="detail-summary"></div></div>
 
@@ -1022,6 +1024,7 @@ function renderAll(){
   renderVolumeTrendTab('VoC L2', 'detail-volvoc2', filteredAllTickets);
   renderTransferRateTab(filteredAllTickets);
   renderRCATab(filteredAllTickets);
+  renderOKRTab(filteredAllTickets);
   renderSummaryTab(getFilteredAllTickets());
   renderWeeklySummaryTab(getFilteredAllTickets());
   renderProductOverview('Studio',       'detail-studio-overview',       base.filter(r=>r['Product (Studio/Vini)']==='Studio'));
@@ -3182,6 +3185,155 @@ function renderRCATab(allTickets) {
       <div style="height:1px;background:var(--border);margin:28px 0;"></div>
       ${outageSection}
     </div>`;
+}
+
+// ─── OKR TAB (Standard Mon–Sun weeks, last 12 weeks incl. current) ───────────
+function renderOKRTab(allTickets) {
+  const el = document.getElementById('detail-okr');
+  if (!el) return;
+  const tickets = allTickets || [];
+
+  function mondayOf(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  function isoWeekNumber(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  }
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const pct = (n, d) => d ? Math.round(n / d * 100) : 0;
+
+  const WEEK_COUNT = 12;
+  const currentMonday = mondayOf(new Date());
+  const weeks = [];
+  for (let i = WEEK_COUNT - 1; i >= 0; i--) {
+    const start = new Date(currentMonday); start.setDate(start.getDate() - i * 7);
+    const end = new Date(start); end.setDate(end.getDate() + 6); end.setHours(23, 59, 59, 999);
+    weeks.push({ start, end, wn: isoWeekNumber(start), dateRange: fmt(start) + '–' + fmt(end) });
+  }
+  const windowStart = weeks[0].start, windowEnd = weeks[weeks.length - 1].end;
+
+  const weekBuckets = weeks.map(() => []);
+  tickets.forEach(r => {
+    const ct = getCreatedTime(r); if (!ct) return;
+    const d = new Date(ct); if (isNaN(d.getTime())) return;
+    if (d < windowStart || d > windowEnd) return;
+    const wi = weeks.findIndex(w => d >= w.start && d <= w.end);
+    if (wi === -1) return;
+    weekBuckets[wi].push(r);
+  });
+
+  function slaMetric(created, field) {
+    const tracked = created.filter(r => (r[field] || '').includes('SLA'));
+    const within = tracked.filter(r => r[field].includes('Within'));
+    return { within: within.length, total: tracked.length };
+  }
+
+  const rows = weeks.map((w, wi) => {
+    const created = weekBuckets[wi];
+    const resolved = created.filter(r => r['Resolved at']);
+    const resSLA = slaMetric(created, 'Resolution status');
+    const frSLA = slaMetric(created, 'First response status');
+    return { week: w, created, resolved, resSLA, frSLA };
+  });
+
+  const totalCreated = rows.reduce((s, r) => s + r.created.length, 0);
+  const totalResolved = rows.reduce((s, r) => s + r.resolved.length, 0);
+  const totalResSLA = rows.reduce((s, r) => ({ within: s.within + r.resSLA.within, total: s.total + r.resSLA.total }), { within: 0, total: 0 });
+  const totalFrSLA = rows.reduce((s, r) => ({ within: s.within + r.frSLA.within, total: s.total + r.frSLA.total }), { within: 0, total: 0 });
+
+  if (!totalCreated) {
+    el.innerHTML = `<div class="empty-state"><span class="icon">🎯</span><strong>No data yet</strong><br>No tickets found in the last 12 weeks.</div>`;
+    return;
+  }
+
+  const weekLabels = rows.map(r => 'Wk ' + r.week.wn);
+  const weekTooltipLabels = rows.map(r => 'Week ' + r.week.wn + ' (' + r.week.dateRange + ')');
+
+  el.innerHTML = `
+    <div style="padding:20px 0;">
+      <div class="summary-banner" style="margin-bottom:18px;">
+        <div class="sb-main">
+          <div class="sb-label">Total Tickets Created (Last 12 Weeks)</div>
+          <div class="sb-value" style="color:var(--accent);">${totalCreated}</div>
+        </div>
+        <div class="sb-divider"></div>
+        <div class="sb-breakdown">
+          <div class="sb-pill" style="border-color:#10b98133;color:var(--green);">Resolved: <strong>${totalResolved}</strong> (${pct(totalResolved, totalCreated)}%)</div>
+          <div class="sb-pill" style="border-color:#06b6d433;color:#06b6d4;">Resolution SLA: <strong>${pct(totalResSLA.within, totalResSLA.total)}%</strong></div>
+          <div class="sb-pill" style="border-color:#f59e0b33;color:var(--amber);">First Response SLA: <strong>${pct(totalFrSLA.within, totalFrSLA.total)}%</strong></div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px;">${weeks[0].dateRange} → ${weeks[weeks.length - 1].dateRange} · Standard Monday–Sunday weeks (incl. current week)</div>
+
+      <div class="chart-card" style="margin-bottom:18px;">
+        <div class="chart-title">Ticket Volume Trend — Created (Last 12 Weeks)</div>
+        <div class="chart-canvas-wrap" style="height:240px;"><canvas id="chart-okr-volume"></canvas></div>
+      </div>
+
+      <div class="chart-card" style="margin-bottom:18px;">
+        <div class="chart-title">Resolution SLA % — Week on Week (Last 12 Weeks)</div>
+        <div class="chart-canvas-wrap" style="height:220px;"><canvas id="chart-okr-ressla"></canvas></div>
+      </div>
+
+      <div class="chart-card">
+        <div class="chart-title">First Response SLA % — Week on Week (Last 12 Weeks)</div>
+        <div class="chart-canvas-wrap" style="height:220px;"><canvas id="chart-okr-frsla"></canvas></div>
+      </div>
+    </div>`;
+
+  // Simple linear-regression trend line, computed for the Created series only
+  function linearTrend(values) {
+    const n = values.length;
+    const xMean = (n - 1) / 2;
+    const yMean = values.reduce((a, b) => a + b, 0) / n;
+    let num = 0, den = 0;
+    for (let i = 0; i < n; i++) { num += (i - xMean) * (values[i] - yMean); den += (i - xMean) * (i - xMean); }
+    const slope = den ? num / den : 0;
+    const intercept = yMean - slope * xMean;
+    return values.map((_, i) => Math.round((slope * i + intercept) * 10) / 10);
+  }
+  const createdCounts = rows.map(r => r.created.length);
+  const createdTrend = linearTrend(createdCounts);
+
+  renderChart('chart-okr-volume', 'line', weekLabels,
+    [
+      { type: 'line', label: 'Created', data: createdCounts, borderColor: '#3b82f6', backgroundColor: '#3b82f633', borderWidth: 2, tension: 0.3, pointRadius: 3, fill: true },
+      { type: 'line', label: 'Created Trend', data: createdTrend, borderColor: '#1d4ed8', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 0, fill: false, tension: 0, order: 0, datalabels: { display: false } },
+    ],
+    {
+      plugins: {
+        legend: { display: true, position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
+        tooltip: { callbacks: { title: ctx => weekTooltipLabels[ctx[0].dataIndex] } },
+      },
+    });
+
+  renderChart('chart-okr-ressla', 'line', weekLabels,
+    [{ label: 'Resolution SLA %', data: rows.map(r => pct(r.resSLA.within, r.resSLA.total)), borderColor: '#06b6d4', backgroundColor: '#06b6d433', borderWidth: 2, tension: 0.3, pointRadius: 3, fill: true }],
+    {
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { title: ctx => weekTooltipLabels[ctx[0].dataIndex], label: ctx => ' ' + ctx.parsed.y + '%' } },
+      },
+      scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } },
+    });
+
+  renderChart('chart-okr-frsla', 'line', weekLabels,
+    [{ label: 'First Response SLA %', data: rows.map(r => pct(r.frSLA.within, r.frSLA.total)), borderColor: '#f59e0b', backgroundColor: '#f59e0b33', borderWidth: 2, tension: 0.3, pointRadius: 3, fill: true }],
+    {
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { title: ctx => weekTooltipLabels[ctx[0].dataIndex], label: ctx => ' ' + ctx.parsed.y + '%' } },
+      },
+      scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } },
+    });
 }
 
 function renderTransferRateTab(allTickets) {
