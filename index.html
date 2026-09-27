@@ -3305,7 +3305,7 @@ function renderOKRTab(allTickets) {
 
   renderChart('chart-okr-volume', 'line', weekLabels,
     [
-      { type: 'line', label: 'Created', data: createdCounts, borderColor: '#3b82f6', backgroundColor: '#3b82f633', borderWidth: 2, tension: 0.3, pointRadius: 3, fill: true },
+      { type: 'line', label: 'Created', data: createdCounts, borderColor: '#3b82f6', backgroundColor: '#3b82f633', borderWidth: 2, tension: 0.3, pointRadius: 3, fill: true, datalabels: { color: '#1e293b' } },
       { type: 'line', label: 'Created Trend', data: createdTrend, borderColor: '#1d4ed8', borderWidth: 2, borderDash: [6, 4], pointRadius: 0, pointHoverRadius: 0, fill: false, tension: 0, order: 0, datalabels: { display: false } },
     ],
     {
@@ -3316,7 +3316,7 @@ function renderOKRTab(allTickets) {
     });
 
   renderChart('chart-okr-ressla', 'line', weekLabels,
-    [{ label: 'Resolution SLA %', data: rows.map(r => pct(r.resSLA.within, r.resSLA.total)), borderColor: '#06b6d4', backgroundColor: '#06b6d433', borderWidth: 2, tension: 0.3, pointRadius: 3, fill: true }],
+    [{ label: 'Resolution SLA %', data: rows.map(r => pct(r.resSLA.within, r.resSLA.total)), borderColor: '#06b6d4', backgroundColor: '#06b6d433', borderWidth: 2, tension: 0.3, pointRadius: 3, fill: true, datalabels: { color: '#1e293b' } }],
     {
       plugins: {
         legend: { display: false },
@@ -3326,7 +3326,7 @@ function renderOKRTab(allTickets) {
     });
 
   renderChart('chart-okr-frsla', 'line', weekLabels,
-    [{ label: 'First Response SLA %', data: rows.map(r => pct(r.frSLA.within, r.frSLA.total)), borderColor: '#f59e0b', backgroundColor: '#f59e0b33', borderWidth: 2, tension: 0.3, pointRadius: 3, fill: true }],
+    [{ label: 'First Response SLA %', data: rows.map(r => pct(r.frSLA.within, r.frSLA.total)), borderColor: '#f59e0b', backgroundColor: '#f59e0b33', borderWidth: 2, tension: 0.3, pointRadius: 3, fill: true, datalabels: { color: '#1e293b' } }],
     {
       plugins: {
         legend: { display: false },
