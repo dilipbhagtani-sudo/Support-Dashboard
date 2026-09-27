@@ -144,16 +144,28 @@ async function fetchPage(page) {
 }
 
 // ─── Fetch ALL tickets (pending + resolved/closed) ───────────────────────────
+// Page cap sized for ~12+ weeks of history at current volume (~45/day) with headroom
+// for growth. Raise this if trend tabs (OKR, Volume Trend, etc.) start missing weeks
+// again as ticket volume increases — check the earliest 'Created time' in /api/tickets
+// against how far back those tabs need to look.
+// Fetched in small concurrent batches (not one page at a time) so doubling the page
+// cap doesn't double the serverless function's wall-clock time against its 60s limit.
 async function fetchAllTickets() {
   const all = [];
+  const MAX_PAGES = 60;
+  const BATCH_SIZE = 5;
   let page = 1;
-  while (page <= 30) {
-    const tickets = await fetchPage(page);
-    if (tickets === null) break;
-    if (!Array.isArray(tickets) || tickets.length === 0) break;
-    tickets.forEach(t => all.push(t));
-    if (tickets.length < 100) break;
-    page++;
+  let done = false;
+  while (page <= MAX_PAGES && !done) {
+    const batch = [];
+    for (let i = 0; i < BATCH_SIZE && page + i <= MAX_PAGES; i++) batch.push(page + i);
+    const results = await Promise.all(batch.map(p => fetchPage(p)));
+    for (const tickets of results) {
+      if (tickets === null || !Array.isArray(tickets)) { done = true; continue; }
+      tickets.forEach(t => all.push(t));
+      if (tickets.length < 100) done = true;
+    }
+    page += BATCH_SIZE;
   }
   return all;
 }
