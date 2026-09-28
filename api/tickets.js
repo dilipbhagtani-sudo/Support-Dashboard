@@ -127,14 +127,23 @@ async function fetchAgents() {
 }
 
 // ─── Fetch one page of tickets ───────────────────────────────────────────────
-async function fetchPage(page) {
+// Retries a 429 a couple of times (with backoff) before giving up on this page —
+// a single transient rate-limit hit should not blank out the whole ticket set.
+async function fetchPage(page, retriesLeft = 2) {
   const url = `https://${DOMAIN}.freshdesk.com/api/v2/tickets?page=${page}&per_page=100&include=stats&updated_since=2026-03-01T00:00:00Z`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
   try {
     const res = await fetch(url, { headers: { Authorization: authHeader() }, signal: controller.signal });
     clearTimeout(timer);
-    if (res.status === 429) return null;
+    if (res.status === 429) {
+      if (retriesLeft > 0) {
+        const retryAfter = Number(res.headers.get('Retry-After')) || 2;
+        await new Promise(r => setTimeout(r, retryAfter * 1000));
+        return fetchPage(page, retriesLeft - 1);
+      }
+      return null;
+    }
     if (!res.ok) return [];
     return res.json();
   } catch {
@@ -148,24 +157,20 @@ async function fetchPage(page) {
 // for growth. Raise this if trend tabs (OKR, Volume Trend, etc.) start missing weeks
 // again as ticket volume increases — check the earliest 'Created time' in /api/tickets
 // against how far back those tabs need to look.
-// Fetched in small concurrent batches (not one page at a time) so doubling the page
-// cap doesn't double the serverless function's wall-clock time against its 60s limit.
+// Fetched sequentially, one page at a time — deliberately NOT parallelized. Firing
+// several requests at Freshdesk concurrently is much more likely to trip their rate
+// limiter (a single 429 anywhere in a batch used to blank out the entire result).
 async function fetchAllTickets() {
   const all = [];
   const MAX_PAGES = 60;
-  const BATCH_SIZE = 5;
   let page = 1;
-  let done = false;
-  while (page <= MAX_PAGES && !done) {
-    const batch = [];
-    for (let i = 0; i < BATCH_SIZE && page + i <= MAX_PAGES; i++) batch.push(page + i);
-    const results = await Promise.all(batch.map(p => fetchPage(p)));
-    for (const tickets of results) {
-      if (tickets === null || !Array.isArray(tickets)) { done = true; continue; }
-      tickets.forEach(t => all.push(t));
-      if (tickets.length < 100) done = true;
-    }
-    page += BATCH_SIZE;
+  while (page <= MAX_PAGES) {
+    const tickets = await fetchPage(page);
+    if (tickets === null) break;
+    if (!Array.isArray(tickets) || tickets.length === 0) break;
+    tickets.forEach(t => all.push(t));
+    if (tickets.length < 100) break;
+    page++;
   }
   return all;
 }
