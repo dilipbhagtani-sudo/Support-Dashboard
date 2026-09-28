@@ -157,20 +157,29 @@ async function fetchPage(page, retriesLeft = 2) {
 // for growth. Raise this if trend tabs (OKR, Volume Trend, etc.) start missing weeks
 // again as ticket volume increases — check the earliest 'Created time' in /api/tickets
 // against how far back those tabs need to look.
-// Fetched sequentially, one page at a time — deliberately NOT parallelized. Firing
-// several requests at Freshdesk concurrently is much more likely to trip their rate
-// limiter (a single 429 anywhere in a batch used to blank out the entire result).
+//
+// Fetched in pairs (2 concurrent requests at a time), not fully sequential and not a
+// large burst — pure sequential at this page count is too slow (times out against the
+// 55-60s function/client budget); a 5-wide burst tried earlier tripped Freshdesk's rate
+// limiter and blanked the result entirely. 2-wide is the middle ground, backed by the
+// retry-with-backoff in fetchPage so an occasional 429 doesn't lose data — it only
+// stops the fetch (keeping whatever was already gathered) if a page keeps failing.
 async function fetchAllTickets() {
   const all = [];
   const MAX_PAGES = 60;
+  const CONCURRENCY = 2;
   let page = 1;
-  while (page <= MAX_PAGES) {
-    const tickets = await fetchPage(page);
-    if (tickets === null) break;
-    if (!Array.isArray(tickets) || tickets.length === 0) break;
-    tickets.forEach(t => all.push(t));
-    if (tickets.length < 100) break;
-    page++;
+  let done = false;
+  while (page <= MAX_PAGES && !done) {
+    const batch = [];
+    for (let i = 0; i < CONCURRENCY && page + i <= MAX_PAGES; i++) batch.push(page + i);
+    const results = await Promise.all(batch.map(p => fetchPage(p)));
+    for (const tickets of results) {
+      if (tickets === null || !Array.isArray(tickets) || tickets.length === 0) { done = true; continue; }
+      tickets.forEach(t => all.push(t));
+      if (tickets.length < 100) done = true;
+    }
+    page += CONCURRENCY;
   }
   return all;
 }
