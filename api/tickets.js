@@ -136,9 +136,11 @@ async function fetchAgents() {
 }
 
 // ─── Fetch one page of tickets ───────────────────────────────────────────────
-// Retries a 429 a couple of times (with backoff) before giving up on this page —
-// a single transient rate-limit hit should not blank out the whole ticket set.
-async function fetchPage(page, retriesLeft = 2) {
+// Retries a 429 once before giving up on this page. The backoff wait is hard-capped
+// at 3s regardless of what Retry-After says — an uncapped wait here previously let a
+// single stuck page block the whole function past Vercel's 60s hard limit, since the
+// caller's time-budget check can only run BETWEEN pages, not interrupt one in flight.
+async function fetchPage(page, retriesLeft = 1) {
   const url = `https://${DOMAIN}.freshdesk.com/api/v2/tickets?page=${page}&per_page=100&include=stats&updated_since=2026-03-01T00:00:00Z`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 8000);
@@ -147,8 +149,9 @@ async function fetchPage(page, retriesLeft = 2) {
     clearTimeout(timer);
     if (res.status === 429) {
       if (retriesLeft > 0) {
-        const retryAfter = Number(res.headers.get('Retry-After')) || 2;
-        await new Promise(r => setTimeout(r, retryAfter * 1000));
+        const retryAfter = Number(res.headers.get('Retry-After')) || 1;
+        const waitMs = Math.min(retryAfter, 3) * 1000; // hard cap — never trust the header's raw value
+        await new Promise(r => setTimeout(r, waitMs));
         return fetchPage(page, retriesLeft - 1);
       }
       return null;
@@ -162,36 +165,33 @@ async function fetchPage(page, retriesLeft = 2) {
 }
 
 // ─── Fetch ALL tickets (pending + resolved/closed) ───────────────────────────
-// Freshdesk's per-page latency with include=stats turns out to be high enough that
-// neither a fixed page count nor a fixed concurrency level can be picked safely up
-// front: a 5-wide burst tripped Freshdesk's rate limiter and returned zero tickets;
-// a 60-page fetch at 2-wide concurrency still ran past the 60s function limit and
-// came back as a 504. Instead of guessing another fixed number, this stops fetching
-// once a time budget is used up and returns whatever was gathered so far — so it
-// adapts to whatever Freshdesk's real latency is on a given day instead of either
-// timing out (nothing returned) or silently under-fetching with no signal.
+// Freshdesk's per-page latency with include=stats turns out to be high enough, and its
+// rate limiting sensitive enough, that no fixed page count or concurrency level can be
+// picked safely up front: a 5-wide burst tripped the rate limiter and returned zero
+// tickets; even 2-wide concurrency triggered enough 429s to either come back mostly
+// empty or (combined with an uncapped retry backoff) hang past the hard 60s function
+// limit entirely. This fetches strictly one page at a time — no concurrency — and
+// stops once a time budget is used up, returning whatever was gathered so far. It
+// adapts to whatever Freshdesk's real latency/limits are on a given day instead of
+// failing outright.
 // DEADLINE_MS leaves headroom under vercel.json's 60s maxDuration for the parallel
-// agent/enterprise-lookup calls, JSON serialization, and network write.
+// agent/enterprise-lookup calls, the worst-case single page retry (~11s), JSON
+// serialization, and network write.
 async function fetchAllTickets() {
   const all = [];
   const MAX_PAGES = 80;
-  const CONCURRENCY = 2;
-  const DEADLINE_MS = 35000; // + up to one in-flight batch (each page has its own 8s cap) ≈ 43s worst case,
+  const DEADLINE_MS = 25000; // + worst-case one more page with its retry (~19s) ≈ 44s total,
                              // leaving real margin under both the 55s client abort and 60s function limit
   const startedAt = Date.now();
   let page = 1;
-  let done = false;
-  while (page <= MAX_PAGES && !done) {
+  while (page <= MAX_PAGES) {
     if (Date.now() - startedAt > DEADLINE_MS) break;
-    const batch = [];
-    for (let i = 0; i < CONCURRENCY && page + i <= MAX_PAGES; i++) batch.push(page + i);
-    const results = await Promise.all(batch.map(p => fetchPage(p)));
-    for (const tickets of results) {
-      if (tickets === null || !Array.isArray(tickets) || tickets.length === 0) { done = true; continue; }
-      tickets.forEach(t => all.push(t));
-      if (tickets.length < 100) done = true;
-    }
-    page += CONCURRENCY;
+    const tickets = await fetchPage(page);
+    if (tickets === null) break;
+    if (!Array.isArray(tickets) || tickets.length === 0) break;
+    tickets.forEach(t => all.push(t));
+    if (tickets.length < 100) break;
+    page++;
   }
   return all;
 }
