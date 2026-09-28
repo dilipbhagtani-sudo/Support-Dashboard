@@ -62,8 +62,11 @@ function parseCSVRow(line) {
 
 // ─── Fetch & parse Google Sheets CSV into a lookup map ───────────────────────
 async function fetchEnterpriseLookup() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
-    const res = await fetch(SHEETS_LOOKUP_URL);
+    const res = await fetch(SHEETS_LOOKUP_URL, { signal: controller.signal });
+    clearTimeout(timer);
     if (!res.ok) return {};
     const text = await res.text();
     const lines = text.trim().split(/\r?\n/);
@@ -92,6 +95,7 @@ async function fetchEnterpriseLookup() {
     }
     return lookup;
   } catch {
+    clearTimeout(timer);
     return {};
   }
 }
@@ -110,10 +114,14 @@ function authHeader() {
 
 // ─── Fetch agents list ───────────────────────────────────────────────────────
 async function fetchAgents() {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
     const res = await fetch(`https://${DOMAIN}.freshdesk.com/api/v2/agents?per_page=100`, {
       headers: { Authorization: authHeader() },
+      signal: controller.signal,
     });
+    clearTimeout(timer);
     if (!res.ok) return {};
     const agents = await res.json();
     const map = {};
@@ -122,6 +130,7 @@ async function fetchAgents() {
     });
     return map;
   } catch {
+    clearTimeout(timer);
     return {};
   }
 }
@@ -153,24 +162,27 @@ async function fetchPage(page, retriesLeft = 2) {
 }
 
 // ─── Fetch ALL tickets (pending + resolved/closed) ───────────────────────────
-// Page cap sized for ~12+ weeks of history at current volume (~45/day) with headroom
-// for growth. Raise this if trend tabs (OKR, Volume Trend, etc.) start missing weeks
-// again as ticket volume increases — check the earliest 'Created time' in /api/tickets
-// against how far back those tabs need to look.
-//
-// Fetched in pairs (2 concurrent requests at a time), not fully sequential and not a
-// large burst — pure sequential at this page count is too slow (times out against the
-// 55-60s function/client budget); a 5-wide burst tried earlier tripped Freshdesk's rate
-// limiter and blanked the result entirely. 2-wide is the middle ground, backed by the
-// retry-with-backoff in fetchPage so an occasional 429 doesn't lose data — it only
-// stops the fetch (keeping whatever was already gathered) if a page keeps failing.
+// Freshdesk's per-page latency with include=stats turns out to be high enough that
+// neither a fixed page count nor a fixed concurrency level can be picked safely up
+// front: a 5-wide burst tripped Freshdesk's rate limiter and returned zero tickets;
+// a 60-page fetch at 2-wide concurrency still ran past the 60s function limit and
+// came back as a 504. Instead of guessing another fixed number, this stops fetching
+// once a time budget is used up and returns whatever was gathered so far — so it
+// adapts to whatever Freshdesk's real latency is on a given day instead of either
+// timing out (nothing returned) or silently under-fetching with no signal.
+// DEADLINE_MS leaves headroom under vercel.json's 60s maxDuration for the parallel
+// agent/enterprise-lookup calls, JSON serialization, and network write.
 async function fetchAllTickets() {
   const all = [];
-  const MAX_PAGES = 60;
+  const MAX_PAGES = 80;
   const CONCURRENCY = 2;
+  const DEADLINE_MS = 35000; // + up to one in-flight batch (each page has its own 8s cap) ≈ 43s worst case,
+                             // leaving real margin under both the 55s client abort and 60s function limit
+  const startedAt = Date.now();
   let page = 1;
   let done = false;
   while (page <= MAX_PAGES && !done) {
+    if (Date.now() - startedAt > DEADLINE_MS) break;
     const batch = [];
     for (let i = 0; i < CONCURRENCY && page + i <= MAX_PAGES; i++) batch.push(page + i);
     const results = await Promise.all(batch.map(p => fetchPage(p)));
