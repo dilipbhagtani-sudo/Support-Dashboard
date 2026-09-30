@@ -3469,15 +3469,31 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
   // Exclude "- ETA" product variants (e.g. "Studio - ETA", "Vini - ETA")
   const scoped = (allTickets || []).filter(r => !/ETA/i.test(r['Product (Studio/Vini)'] || ''));
 
-  const now = new Date();
-  const WEEK_COUNT = 4;
+  // Standard Monday–Sunday weeks, including the current (partial) week — same week
+  // logic as the RCA / Transfer Rate / OKR tabs.
+  function mondayOf(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    d.setDate(d.getDate() + (day === 0 ? -6 : 1 - day));
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+  function isoWeekNumber(date) {
+    const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+    const dayNum = d.getUTCDay() || 7;
+    d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+    return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+  }
   const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  // Oldest → newest; most recent window's end day is today
+
+  const WEEK_COUNT = 4;
+  const currentMonday = mondayOf(new Date());
   const weeks = [];
   for (let i = WEEK_COUNT - 1; i >= 0; i--) {
-    const end = new Date(now); end.setDate(end.getDate() - i * 7); end.setHours(23, 59, 59, 999);
-    const start = new Date(end); start.setDate(start.getDate() - 6); start.setHours(0, 0, 0, 0);
-    weeks.push({ start, end, label: fmt(start) + '–' + fmt(end) });
+    const start = new Date(currentMonday); start.setDate(start.getDate() - i * 7);
+    const end = new Date(start); end.setDate(end.getDate() + 6); end.setHours(23, 59, 59, 999);
+    weeks.push({ start, end, wn: isoWeekNumber(start), dateRange: fmt(start) + '–' + fmt(end), label: 'Week ' + isoWeekNumber(start) + ' (' + fmt(start) + '–' + fmt(end) + ')' });
   }
   const windowStart = weeks[0].start, windowEnd = weeks[weeks.length - 1].end;
 
@@ -3522,7 +3538,7 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
     return `<td style="text-align:center;cursor:pointer;${extraStyle||''}" onclick="(function(){var t=(window._volTrendStore['${containerId}']||{})['${storeKey}']||[];showTicketViewerPanel(t,'${fieldName} — ${count} ticket(s)','var(--accent)');})()">${count}</td>`;
   }
 
-  const headerCells = weeks.map(w => `<th style="text-align:center;">${w.label}</th>`).join('');
+  const headerCells = weeks.map(w => `<th style="text-align:center;">Week ${w.wn} <span style="font-weight:400;color:var(--muted2);font-size:10px;">(${w.dateRange})</span></th>`).join('');
   const totalRowCells = weekTotalTickets.map((tix, wi) => cellHTML('wk' + wi, tix.length, 'font-weight:700;color:var(--accent);')).join('');
   const bodyRows = rows.map((row, ri) => {
     const cells = row.weekTickets.map((tix, wi) => cellHTML('row' + ri + '_wk' + wi, tix.length, tix.length ? 'color:var(--text);' : '')).join('');
@@ -3541,7 +3557,7 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
           <div class="sb-value" style="color:var(--accent);cursor:pointer;" onclick="(function(){var t=(window._volTrendStore['${containerId}']||{})['grand']||[];showTicketViewerPanel(t,'${fieldName} — All tickets (Last 4 Weeks)','var(--accent)');})()">${grandTotalTickets.length}</div>
         </div>
         <div class="sb-divider"></div>
-        <div style="font-size:12px;color:var(--muted);">${weeks[0].label} → ${weeks[weeks.length - 1].label} · All statuses · excludes "- ETA" tickets · click any number to view tickets</div>
+        <div style="font-size:12px;color:var(--muted);">${weeks[0].dateRange} → ${weeks[weeks.length - 1].dateRange} · Standard Monday–Sunday weeks (incl. current week) · All statuses · excludes "- ETA" tickets · click any number to view tickets</div>
       </div>
       <div class="table-wrap">
         <table class="ticket-table">
