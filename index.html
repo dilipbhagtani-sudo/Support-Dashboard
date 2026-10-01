@@ -192,6 +192,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <select class="filter-select" id="category-select" onchange="renderAll()">
         <option value="all">All Categories</option>
       </select>
+      <select class="filter-select" id="issuetype-select" onchange="renderAll()">
+        <option value="all">All Issue Types</option>
+      </select>
       <select class="filter-select" id="enttype-select" onchange="renderAll()">
         <option value="all">All Ent Types</option>
       </select>
@@ -783,6 +786,15 @@ function populateFilters(){
   [...new Set(allData.map(r=>(r['cf_categorytype']||r['Category/Type']||'').trim()).filter(Boolean))].sort().forEach(c=>{
     const o=document.createElement('option');o.value=c;o.textContent=c;csel.appendChild(o);
   });
+  // Issue Type (Freshdesk's built-in "Type" field — Bug/Task/Query/Outage/etc.)
+  const itsel=document.getElementById('issuetype-select');
+  if(itsel){
+    while(itsel.options.length>1)itsel.remove(1);
+    itsel.value='all';
+    [...new Set(allData.map(r=>(r['Type']||'').trim()).filter(Boolean))].sort().forEach(t=>{
+      const o=document.createElement('option');o.value=t;o.textContent=t;itsel.appendChild(o);
+    });
+  }
   // CSM
   const csmsel=document.getElementById('csm-select');
   if(csmsel){
@@ -816,6 +828,7 @@ function getFiltered(){
   const pf=document.getElementById('product-select').value;
   const prf=document.getElementById('priority-select').value;
   const cf=document.getElementById('category-select').value;
+  const itf=(document.getElementById('issuetype-select')||{}).value||'all';
   const ef=document.getElementById('enttype-select').value;
   const csmf=(document.getElementById('csm-select')||{}).value||'all';
   const obf=(document.getElementById('ob-select')||{}).value||'all';
@@ -831,6 +844,7 @@ function getFiltered(){
     if(pf!=='all'&&r['Product (Studio/Vini)']!==pf)return false;
     if(prf!=='all'&&r['Priority']!==prf)return false;
     if(cf!=='all'&&(r['cf_categorytype']||r['Category/Type']||'').trim()!==cf)return false;
+    if(itf!=='all'&&(r['Type']||'').trim()!==itf)return false;
     if(ef!=='all'&&(r['ENT Type']||'').trim()!==ef)return false;
     if(csmf!=='all'&&(r['CSM Name']||r['CSM Name (updated)']||'').trim()!==csmf)return false;
     if(obf!=='all'&&(r['OB Name']||'').trim()!==obf)return false;
@@ -848,6 +862,7 @@ function getFilteredAllTickets() {
   const pf  = document.getElementById('product-select').value;
   const prf = document.getElementById('priority-select').value;
   const cf  = document.getElementById('category-select').value;
+  const itf = (document.getElementById('issuetype-select') || {}).value || 'all';
   const ef  = document.getElementById('enttype-select').value;
   const csmf = (document.getElementById('csm-select') || {}).value || 'all';
   const obf = (document.getElementById('ob-select') || {}).value || 'all';
@@ -855,6 +870,7 @@ function getFilteredAllTickets() {
     if (pf  !== 'all' && r['Product (Studio/Vini)'] !== pf) return false;
     if (prf !== 'all' && r['Priority'] !== prf) return false;
     if (cf  !== 'all' && (r['cf_categorytype'] || r['Category/Type'] || '').trim() !== cf) return false;
+    if (itf !== 'all' && (r['Type'] || '').trim() !== itf) return false;
     if (ef  !== 'all' && (r['ENT Type'] || '').trim() !== ef) return false;
     if (csmf !== 'all' && (r['CSM Name'] || r['CSM Name (updated)'] || '').trim() !== csmf) return false;
     if (obf !== 'all' && (r['OB Name'] || '').trim() !== obf) return false;
