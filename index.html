@@ -247,6 +247,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="voctrends">📈 VOC Trends</div>
     <div class="tab" data-tab="volvoc1">🔢 Volume Trend VOC1</div>
     <div class="tab" data-tab="volvoc2">🔢 Volume Trend VOC2</div>
+    <div class="tab" data-tab="volissuetype">🔢 Volume Trend Issue Type</div>
     <div class="tab" data-tab="transferrate">🔁 Transfer Rate</div>
     <div class="tab" data-tab="rca">🐛 RCA</div>
     <div class="tab" data-tab="okr">🎯 OKR</div>
@@ -324,6 +325,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-voctrends"><div id="detail-voctrends"></div></div>
   <div class="tab-content" id="tab-volvoc1"><div id="detail-volvoc1"></div></div>
   <div class="tab-content" id="tab-volvoc2"><div id="detail-volvoc2"></div></div>
+  <div class="tab-content" id="tab-volissuetype"><div id="detail-volissuetype"></div></div>
   <div class="tab-content" id="tab-transferrate"><div id="detail-transferrate"></div></div>
   <div class="tab-content" id="tab-rca"><div id="detail-rca"></div></div>
   <div class="tab-content" id="tab-okr"><div id="detail-okr"></div></div>
@@ -1038,6 +1040,7 @@ function renderAll(){
   renderVocTrendsTab(base, filteredAllTickets);
   renderVolumeTrendTab('VoC L1', 'detail-volvoc1', filteredAllTickets);
   renderVolumeTrendTab('VoC L2', 'detail-volvoc2', filteredAllTickets);
+  renderVolumeTrendTab('Type', 'detail-volissuetype', filteredAllTickets, 'Issue Type');
   renderTransferRateTab(filteredAllTickets);
   renderRCATab(filteredAllTickets);
   renderOKRTab(filteredAllTickets);
@@ -3478,7 +3481,8 @@ function renderTransferRateTab(allTickets) {
     </div>`;
 }
 
-function renderVolumeTrendTab(fieldName, containerId, allTickets) {
+function renderVolumeTrendTab(fieldName, containerId, allTickets, displayLabel) {
+  const label = displayLabel || fieldName;
   const el = document.getElementById(containerId);
   if (!el) return;
 
@@ -3534,7 +3538,7 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
   const weekTotalTickets = weeks.map((_, wi) => rows.flatMap(r => r.weekTickets[wi]));
 
   if (!rows.length) {
-    el.innerHTML = `<div class="empty-state"><span class="icon">📊</span><strong>No data</strong><br>No tickets found for ${fieldName} in the last 4 weeks.</div>`;
+    el.innerHTML = `<div class="empty-state"><span class="icon">📊</span><strong>No data</strong><br>No tickets found for ${label} in the last 4 weeks.</div>`;
     return;
   }
 
@@ -3551,7 +3555,7 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
 
   function cellHTML(storeKey, count, extraStyle) {
     if (!count) return `<td style="text-align:center;color:var(--muted2);${extraStyle||''}">—</td>`;
-    return `<td style="text-align:center;cursor:pointer;${extraStyle||''}" onclick="(function(){var t=(window._volTrendStore['${containerId}']||{})['${storeKey}']||[];showTicketViewerPanel(t,'${fieldName} — ${count} ticket(s)','var(--accent)');})()">${count}</td>`;
+    return `<td style="text-align:center;cursor:pointer;${extraStyle||''}" onclick="(function(){var t=(window._volTrendStore['${containerId}']||{})['${storeKey}']||[];showTicketViewerPanel(t,'${label} — ${count} ticket(s)','var(--accent)');})()">${count}</td>`;
   }
 
   const headerCells = weeks.map(w => `<th style="text-align:center;">Week ${w.wn} <span style="font-weight:400;color:var(--muted2);font-size:10px;">(${w.dateRange})</span></th>`).join('');
@@ -3569,8 +3573,8 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
     <div style="padding:20px 0;">
       <div class="summary-banner" style="margin-bottom:18px;">
         <div class="sb-main">
-          <div class="sb-label">Total ${fieldName} Volume (Last 4 Weeks)</div>
-          <div class="sb-value" style="color:var(--accent);cursor:pointer;" onclick="(function(){var t=(window._volTrendStore['${containerId}']||{})['grand']||[];showTicketViewerPanel(t,'${fieldName} — All tickets (Last 4 Weeks)','var(--accent)');})()">${grandTotalTickets.length}</div>
+          <div class="sb-label">Total ${label} Volume (Last 4 Weeks)</div>
+          <div class="sb-value" style="color:var(--accent);cursor:pointer;" onclick="(function(){var t=(window._volTrendStore['${containerId}']||{})['grand']||[];showTicketViewerPanel(t,'${label} — All tickets (Last 4 Weeks)','var(--accent)');})()">${grandTotalTickets.length}</div>
         </div>
         <div class="sb-divider"></div>
         <div style="font-size:12px;color:var(--muted);">${weeks[0].dateRange} → ${weeks[weeks.length - 1].dateRange} · Standard Monday–Sunday weeks (incl. current week) · All statuses · excludes "- ETA" tickets · click any number to view tickets</div>
@@ -3578,7 +3582,7 @@ function renderVolumeTrendTab(fieldName, containerId, allTickets) {
       <div class="table-wrap">
         <table class="ticket-table">
           <thead><tr>
-            <th>${fieldName}</th>
+            <th>${label}</th>
             ${headerCells}
             <th style="text-align:center;">Total</th>
           </tr></thead>
