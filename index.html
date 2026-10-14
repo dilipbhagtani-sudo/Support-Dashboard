@@ -244,6 +244,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div class="tab" data-tab="enterprise">Enterprise <span class="tab-badge" id="badge-enterprise">0</span></div>
     <div class="tab" data-tab="csm">CSM <span class="tab-badge" id="badge-csm">0</span></div>
     <div class="tab" data-tab="csmpendency">CSM/OB Pendency <span class="tab-badge" id="badge-csmpendency">0</span></div>
+    <div class="tab" data-tab="internalstatus">🧭 Internal Status</div>
     <div class="tab" data-tab="voctrends">📈 VOC Trends</div>
     <div class="tab" data-tab="volvoc1">🔢 Volume Trend VOC1</div>
     <div class="tab" data-tab="volvoc2">🔢 Volume Trend VOC2</div>
@@ -322,6 +323,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="tab-content" id="tab-enterprise"><div id="detail-enterprise"></div></div>
   <div class="tab-content" id="tab-csm"><div id="detail-csm"></div></div>
   <div class="tab-content" id="tab-csmpendency"><div id="detail-csmpendency"></div></div>
+  <div class="tab-content" id="tab-internalstatus"><div id="detail-internalstatus"></div></div>
   <div class="tab-content" id="tab-voctrends"><div id="detail-voctrends"></div></div>
   <div class="tab-content" id="tab-volvoc1"><div id="detail-volvoc1"></div></div>
   <div class="tab-content" id="tab-volvoc2"><div id="detail-volvoc2"></div></div>
@@ -1035,6 +1037,7 @@ function renderAll(){
   renderEnterpriseTab(base);
   renderCsmTab(base);
   renderCsmPendencyTab(base);
+  renderInternalStatusTab(base);
   // Pass both filtered pending and filtered all tickets to VOC trends
   const filteredAllTickets = getFilteredAllTickets();
   renderVocTrendsTab(base, filteredAllTickets);
@@ -3353,6 +3356,135 @@ function renderOKRTab(allTickets) {
       },
       scales: { y: { min: 0, max: 100, ticks: { callback: v => v + '%' } } },
     });
+}
+
+// ─── INTERNAL STATUS TAB (pending tickets grouped by cf_internal_status) ─────
+function renderInternalStatusTab(tickets) {
+  const el = document.getElementById('detail-internalstatus');
+  if (!el) return;
+  tickets = tickets || [];
+
+  if (!tickets.length) {
+    el.innerHTML = `<div class="empty-state"><span class="icon">🧭</span><strong>No pending tickets</strong><br>Nothing matches the selected filters.</div>`;
+    return;
+  }
+
+  const NOT_SET = '(Not set)';
+  const PRIOS = ['Urgent', 'High', 'Medium', 'Low'];
+  const PRIO_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#94a3b8'];
+  const PALETTE = ['#3b82f6', '#8b5cf6', '#10b981', '#f97316', '#ec4899', '#06b6d4', '#f59e0b', '#a855f7', '#0891b2', '#d946ef'];
+  const pct = (n, d) => d ? Math.round(n / d * 100) : 0;
+  const esc = s => String(s).replace(/</g, '&lt;');
+
+  const groups = {};
+  tickets.forEach(r => {
+    const k = (r['Internal Status'] || '').trim() || NOT_SET;
+    (groups[k] = groups[k] || []).push(r);
+  });
+  // Real statuses by size (high → low); "(Not set)" always last so it reads as the remainder
+  const entries = Object.entries(groups).sort((a, b) => {
+    if (a[0] === NOT_SET) return 1;
+    if (b[0] === NOT_SET) return -1;
+    return b[1].length - a[1].length;
+  });
+
+  const setTickets = tickets.filter(r => (r['Internal Status'] || '').trim());
+  const notSetCount = tickets.length - setTickets.length;
+
+  const store = {};
+  window._intStatusStore = store;
+  store['total'] = tickets;
+  store['set'] = setTickets;
+  store['notset'] = groups[NOT_SET] || [];
+
+  const click = (key, label, color) =>
+    `onclick="(function(){var t=(window._intStatusStore||{})['${key}']||[];showTicketViewerPanel(t,'${label}','${color}');})()"`;
+
+  function numCell(key, label, count, color, bold) {
+    if (!count) return `<td style="padding:11px 16px;text-align:center;font-size:13px;color:var(--muted2);">—</td>`;
+    return `<td ${click(key, label, color)} style="padding:11px 16px;text-align:center;font-size:${bold ? 14 : 13}px;font-weight:${bold ? 700 : 600};color:${color};cursor:pointer;">${count}</td>`;
+  }
+
+  let pills = '';
+  let rowsHTML = '';
+  entries.forEach(([status, tix], gi) => {
+    const color = status === NOT_SET ? '#64748b' : PALETTE[gi % PALETTE.length];
+    const safeLabel = esc(status).replace(/'/g, "\\'");
+    store['g' + gi] = tix;
+
+    pills += `<div ${click('g' + gi, safeLabel, color)} style="display:inline-flex;align-items:center;gap:6px;background:${color}12;border:1.5px solid ${color}44;border-radius:999px;padding:5px 14px;cursor:pointer;" title="${esc(status)}">
+      <span style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>
+      <span style="font-size:12px;font-weight:500;color:var(--muted);">${esc(status)}:</span>
+      <span style="font-size:13px;font-weight:700;color:${color};">${tix.length}</span>
+      <span style="font-size:10px;color:var(--muted2);">${pct(tix.length, tickets.length)}%</span>
+    </div>`;
+
+    const byP = PRIOS.map((p, pi) => {
+      const sub = tix.filter(r => r['Priority'] === p);
+      store['g' + gi + '_p' + pi] = sub;
+      return numCell('g' + gi + '_p' + pi, safeLabel + ' — ' + p, sub.length, PRIO_COLORS[pi], false);
+    }).join('');
+    const breached = tix.filter(r => getSLAStatus(r) === 'red');
+    store['g' + gi + '_br'] = breached;
+
+    rowsHTML += `<tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:11px 16px;"><span style="display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--text);${status === NOT_SET ? 'font-style:italic;color:var(--muted);' : ''}"><span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>${esc(status)}</span></td>
+      ${byP}
+      ${numCell('g' + gi + '_br', safeLabel + ' — SLA Breached', breached.length, '#ef4444', false)}
+      ${numCell('g' + gi, safeLabel, tix.length, color, true)}
+      <td style="padding:11px 16px;text-align:center;font-size:12px;color:var(--muted);">${pct(tix.length, tickets.length)}%</td>
+    </tr>`;
+  });
+
+  const totByP = PRIOS.map((p, pi) => {
+    const sub = tickets.filter(r => r['Priority'] === p);
+    store['tot_p' + pi] = sub;
+    return numCell('tot_p' + pi, 'All — ' + p, sub.length, PRIO_COLORS[pi], true);
+  }).join('');
+  const totBreached = tickets.filter(r => getSLAStatus(r) === 'red');
+  store['tot_br'] = totBreached;
+
+  el.innerHTML = `
+    <div style="padding:20px 0;">
+      <div class="summary-banner" style="margin-bottom:18px;">
+        <div class="sb-main">
+          <div class="sb-label">Pending Tickets by Internal Status</div>
+          <div class="sb-value" style="color:var(--accent);cursor:pointer;" ${click('total', 'All pending tickets', 'var(--accent)')}>${tickets.length}</div>
+        </div>
+        <div class="sb-divider"></div>
+        <div class="sb-breakdown">
+          <div class="sb-pill" style="border-color:#10b98133;color:var(--green);cursor:pointer;" ${click('set', 'Internal Status set', 'var(--green)')}>Status set: <strong>${setTickets.length}</strong> (${pct(setTickets.length, tickets.length)}%)</div>
+          <div class="sb-pill" style="border-color:#64748b33;color:#64748b;cursor:pointer;" ${click('notset', 'Internal Status not set', '#64748b')}>Not set: <strong>${notSetCount}</strong> (${pct(notSetCount, tickets.length)}%)</div>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">Pending tickets only · respects the header filters · click any number to view tickets</div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">${pills}</div>
+
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead>
+            <tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
+              <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">Internal Status</th>
+              ${PRIOS.map((p, pi) => `<th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:${PRIO_COLORS[pi]};">${p}</th>`).join('')}
+              <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:#ef4444;">SLA Breached</th>
+              <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">Total</th>
+              <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHTML}
+            <tr style="background:var(--surface2);border-top:2px solid var(--border2);">
+              <td style="padding:12px 16px;font-size:14px;font-weight:700;color:var(--text);">Total</td>
+              ${totByP}
+              ${numCell('tot_br', 'All — SLA Breached', totBreached.length, '#ef4444', true)}
+              ${numCell('total', 'All pending tickets', tickets.length, 'var(--accent)', true)}
+              <td style="padding:12px 16px;text-align:center;font-size:12px;font-weight:700;color:var(--muted);">100%</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>`;
 }
 
 function renderTransferRateTab(allTickets) {
