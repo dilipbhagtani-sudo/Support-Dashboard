@@ -248,6 +248,7 @@ function mapTicket(t, lookup = {}, agentMap = {}) {
     'L1 Agent':                 cf.cf_l1_agent || '',
     'Ticket POD':               cf.cf_ticket_pod || '',
     'RCA Description':         cf.cf_rca_description || '',
+    'Internal Status':          cf.cf_internal_status || '',
     'Tags':                     tags,
     'Created time':             created,
     'Resolved at':              stats.resolved_at || '',
