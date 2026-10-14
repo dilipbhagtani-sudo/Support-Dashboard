@@ -3358,7 +3358,7 @@ function renderOKRTab(allTickets) {
     });
 }
 
-// ─── INTERNAL STATUS TAB (pending tickets grouped by cf_internal_status) ─────
+// ─── INTERNAL STATUS TAB (pending tickets grouped by cf_internal_status, per product) ─
 function renderInternalStatusTab(tickets) {
   const el = document.getElementById('detail-internalstatus');
   if (!el) return;
@@ -3370,120 +3370,147 @@ function renderInternalStatusTab(tickets) {
   }
 
   const NOT_SET = '(Not set)';
+  const PRODUCT_FIELD = 'Product (Studio/Vini)';
+  const PRODUCTS = [
+    { key: 'Studio',       color: '#3b82f6', icon: '🎬' },
+    { key: 'Sales',        color: '#10b981', icon: '💼' },
+    { key: 'Service',      color: '#f97316', icon: '🛠️' },
+    { key: 'Integrations', color: '#8b5cf6', icon: '🔌' },
+    { key: 'Chatbot',      color: '#ec4899', icon: '🤖' },
+    { key: 'Acquisition',  color: '#14b8a6', icon: '🎯' },
+  ];
   const PRIOS = ['Urgent', 'High', 'Medium', 'Low'];
   const PRIO_COLORS = ['#ef4444', '#f59e0b', '#3b82f6', '#94a3b8'];
-  const PALETTE = ['#3b82f6', '#8b5cf6', '#10b981', '#f97316', '#ec4899', '#06b6d4', '#f59e0b', '#a855f7', '#0891b2', '#d946ef'];
+  const STATUS_PALETTE = ['#3b82f6', '#8b5cf6', '#10b981', '#f97316', '#ec4899', '#06b6d4', '#f59e0b', '#a855f7', '#0891b2', '#d946ef'];
   const pct = (n, d) => d ? Math.round(n / d * 100) : 0;
   const esc = s => String(s).replace(/</g, '&lt;');
+  const jsEsc = s => esc(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+  const statusOf = r => (r['Internal Status'] || '').trim() || NOT_SET;
 
-  const groups = {};
-  tickets.forEach(r => {
-    const k = (r['Internal Status'] || '').trim() || NOT_SET;
-    (groups[k] = groups[k] || []).push(r);
-  });
-  // Real statuses by size (high → low); "(Not set)" always last so it reads as the remainder
-  const entries = Object.entries(groups).sort((a, b) => {
-    if (a[0] === NOT_SET) return 1;
-    if (b[0] === NOT_SET) return -1;
-    return b[1].length - a[1].length;
-  });
-
-  const setTickets = tickets.filter(r => (r['Internal Status'] || '').trim());
-  const notSetCount = tickets.length - setTickets.length;
+  // Same colour for the same status in every section (ranked by overall volume)
+  const overall = {};
+  tickets.forEach(r => { const k = statusOf(r); overall[k] = (overall[k] || 0) + 1; });
+  const statusColor = {};
+  Object.entries(overall).filter(([k]) => k !== NOT_SET).sort((a, b) => b[1] - a[1])
+    .forEach(([k], i) => { statusColor[k] = STATUS_PALETTE[i % STATUS_PALETTE.length]; });
+  statusColor[NOT_SET] = '#64748b';
 
   const store = {};
   window._intStatusStore = store;
-  store['total'] = tickets;
-  store['set'] = setTickets;
-  store['notset'] = groups[NOT_SET] || [];
 
   const click = (key, label, color) =>
     `onclick="(function(){var t=(window._intStatusStore||{})['${key}']||[];showTicketViewerPanel(t,'${label}','${color}');})()"`;
 
   function numCell(key, label, count, color, bold) {
-    if (!count) return `<td style="padding:11px 16px;text-align:center;font-size:13px;color:var(--muted2);">—</td>`;
-    return `<td ${click(key, label, color)} style="padding:11px 16px;text-align:center;font-size:${bold ? 14 : 13}px;font-weight:${bold ? 700 : 600};color:${color};cursor:pointer;">${count}</td>`;
+    if (!count) return `<td style="padding:10px 16px;text-align:center;font-size:13px;color:var(--muted2);">—</td>`;
+    return `<td ${click(key, label, color)} style="padding:10px 16px;text-align:center;font-size:${bold ? 14 : 13}px;font-weight:${bold ? 700 : 600};color:${color};cursor:pointer;">${count}</td>`;
   }
 
-  let pills = '';
-  let rowsHTML = '';
-  entries.forEach(([status, tix], gi) => {
-    const color = status === NOT_SET ? '#64748b' : PALETTE[gi % PALETTE.length];
-    const safeLabel = esc(status).replace(/'/g, "\\'");
-    store['g' + gi] = tix;
+  // One section = header + status × priority table for a set of tickets
+  function buildSection(si, title, icon, color, tix) {
+    const sk = 's' + si + '_';
+    const safeTitle = jsEsc(title);
+    const groups = {};
+    tix.forEach(r => { const k = statusOf(r); (groups[k] = groups[k] || []).push(r); });
+    const entries = Object.entries(groups).sort((a, b) => {
+      if (a[0] === NOT_SET) return 1;
+      if (b[0] === NOT_SET) return -1;
+      return b[1].length - a[1].length;
+    });
+    const setCount = tix.length - (groups[NOT_SET] || []).length;
 
-    pills += `<div ${click('g' + gi, safeLabel, color)} style="display:inline-flex;align-items:center;gap:6px;background:${color}12;border:1.5px solid ${color}44;border-radius:999px;padding:5px 14px;cursor:pointer;" title="${esc(status)}">
-      <span style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>
-      <span style="font-size:12px;font-weight:500;color:var(--muted);">${esc(status)}:</span>
-      <span style="font-size:13px;font-weight:700;color:${color};">${tix.length}</span>
-      <span style="font-size:10px;color:var(--muted2);">${pct(tix.length, tickets.length)}%</span>
-    </div>`;
+    store[sk + 'all'] = tix;
+    let rows = '';
+    entries.forEach(([status, g], gi) => {
+      const c = statusColor[status] || '#64748b';
+      const lbl = safeTitle + ' — ' + jsEsc(status);
+      store[sk + 'g' + gi] = g;
+      const byP = PRIOS.map((p, pi) => {
+        const sub = g.filter(r => r['Priority'] === p);
+        store[sk + 'g' + gi + 'p' + pi] = sub;
+        return numCell(sk + 'g' + gi + 'p' + pi, lbl + ' — ' + p, sub.length, PRIO_COLORS[pi], false);
+      }).join('');
+      const br = g.filter(r => getSLAStatus(r) === 'red');
+      store[sk + 'g' + gi + 'br'] = br;
+      rows += `<tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:10px 16px;"><span style="display:inline-flex;align-items:center;gap:7px;font-size:13px;color:${status === NOT_SET ? 'var(--muted)' : 'var(--text)'};${status === NOT_SET ? 'font-style:italic;' : ''}"><span style="width:8px;height:8px;border-radius:50%;background:${c};flex-shrink:0;display:inline-block;"></span>${esc(status)}</span></td>
+        ${byP}
+        ${numCell(sk + 'g' + gi + 'br', lbl + ' — SLA Breached', br.length, '#ef4444', false)}
+        ${numCell(sk + 'g' + gi, lbl, g.length, c, true)}
+        <td style="padding:10px 16px;text-align:center;font-size:12px;color:var(--muted);">${pct(g.length, tix.length)}%</td>
+      </tr>`;
+    });
 
-    const byP = PRIOS.map((p, pi) => {
+    const totP = PRIOS.map((p, pi) => {
       const sub = tix.filter(r => r['Priority'] === p);
-      store['g' + gi + '_p' + pi] = sub;
-      return numCell('g' + gi + '_p' + pi, safeLabel + ' — ' + p, sub.length, PRIO_COLORS[pi], false);
+      store[sk + 'tp' + pi] = sub;
+      return numCell(sk + 'tp' + pi, safeTitle + ' — ' + p, sub.length, PRIO_COLORS[pi], true);
     }).join('');
-    const breached = tix.filter(r => getSLAStatus(r) === 'red');
-    store['g' + gi + '_br'] = breached;
+    const totBr = tix.filter(r => getSLAStatus(r) === 'red');
+    store[sk + 'tbr'] = totBr;
 
-    rowsHTML += `<tr style="border-bottom:1px solid var(--border);">
-      <td style="padding:11px 16px;"><span style="display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--text);${status === NOT_SET ? 'font-style:italic;color:var(--muted);' : ''}"><span style="width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;display:inline-block;"></span>${esc(status)}</span></td>
-      ${byP}
-      ${numCell('g' + gi + '_br', safeLabel + ' — SLA Breached', breached.length, '#ef4444', false)}
-      ${numCell('g' + gi, safeLabel, tix.length, color, true)}
-      <td style="padding:11px 16px;text-align:center;font-size:12px;color:var(--muted);">${pct(tix.length, tickets.length)}%</td>
-    </tr>`;
+    const th = (t, c, left) => `<th style="padding:9px 16px;text-align:${left ? 'left' : 'center'};font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:${c};">${t}</th>`;
+
+    return `<div style="margin-bottom:26px;">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:10px;">
+        <div style="font-size:15px;font-weight:700;color:${color};">${icon} ${esc(title)}</div>
+        <div ${click(sk + 'all', safeTitle + ' — all pending', color)} style="font-size:12px;font-weight:700;color:${color};background:${color}14;border:1px solid ${color}44;border-radius:999px;padding:2px 12px;cursor:pointer;">${tix.length} pending</div>
+        <div style="font-size:12px;color:var(--muted);">Status set: <strong style="color:var(--text);">${setCount}</strong> (${pct(setCount, tix.length)}%) · Not set: <strong style="color:var(--text);">${tix.length - setCount}</strong></div>
+      </div>
+      <div style="background:var(--surface);border:1px solid var(--border);border-top:3px solid ${color};border-radius:14px;overflow:hidden;">
+        <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;">
+          <thead><tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
+            ${th('Internal Status', 'var(--muted)', true)}
+            ${PRIOS.map((p, pi) => th(p, PRIO_COLORS[pi])).join('')}
+            ${th('SLA Breached', '#ef4444')}${th('Total', 'var(--muted)')}${th('%', 'var(--muted)')}
+          </tr></thead>
+          <tbody>
+            ${rows}
+            <tr style="background:var(--surface2);border-top:2px solid var(--border2);">
+              <td style="padding:11px 16px;font-size:13px;font-weight:700;color:var(--text);">Total</td>
+              ${totP}
+              ${numCell(sk + 'tbr', safeTitle + ' — SLA Breached', totBr.length, '#ef4444', true)}
+              ${numCell(sk + 'all', safeTitle + ' — all pending', tix.length, color, true)}
+              <td style="padding:11px 16px;text-align:center;font-size:12px;font-weight:700;color:var(--muted);">100%</td>
+            </tr>
+          </tbody>
+        </table>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  const known = new Set(PRODUCTS.map(p => p.key));
+  const otherTix = tickets.filter(r => !known.has((r[PRODUCT_FIELD] || '').trim()));
+
+  let si = 0;
+  let sections = buildSection(si++, 'All Products', '🧭', '#475569', tickets);
+  PRODUCTS.forEach(p => {
+    const tix = tickets.filter(r => (r[PRODUCT_FIELD] || '').trim() === p.key);
+    if (tix.length) sections += buildSection(si++, p.key, p.icon, p.color, tix);
   });
+  // Anything with a product value we don't list (blank, "Studio - ETA", legacy "Vini"…) —
+  // shown rather than dropped so the product sections always account for every ticket.
+  if (otherTix.length) sections += buildSection(si++, 'Other / No Product', '📦', '#64748b', otherTix);
 
-  const totByP = PRIOS.map((p, pi) => {
-    const sub = tickets.filter(r => r['Priority'] === p);
-    store['tot_p' + pi] = sub;
-    return numCell('tot_p' + pi, 'All — ' + p, sub.length, PRIO_COLORS[pi], true);
-  }).join('');
-  const totBreached = tickets.filter(r => getSLAStatus(r) === 'red');
-  store['tot_br'] = totBreached;
+  const setTotal = tickets.filter(r => (r['Internal Status'] || '').trim()).length;
 
   el.innerHTML = `
     <div style="padding:20px 0;">
       <div class="summary-banner" style="margin-bottom:18px;">
         <div class="sb-main">
           <div class="sb-label">Pending Tickets by Internal Status</div>
-          <div class="sb-value" style="color:var(--accent);cursor:pointer;" ${click('total', 'All pending tickets', 'var(--accent)')}>${tickets.length}</div>
+          <div class="sb-value" style="color:var(--accent);">${tickets.length}</div>
         </div>
         <div class="sb-divider"></div>
         <div class="sb-breakdown">
-          <div class="sb-pill" style="border-color:#10b98133;color:var(--green);cursor:pointer;" ${click('set', 'Internal Status set', 'var(--green)')}>Status set: <strong>${setTickets.length}</strong> (${pct(setTickets.length, tickets.length)}%)</div>
-          <div class="sb-pill" style="border-color:#64748b33;color:#64748b;cursor:pointer;" ${click('notset', 'Internal Status not set', '#64748b')}>Not set: <strong>${notSetCount}</strong> (${pct(notSetCount, tickets.length)}%)</div>
+          <div class="sb-pill" style="border-color:#10b98133;color:var(--green);">Status set: <strong>${setTotal}</strong> (${pct(setTotal, tickets.length)}%)</div>
+          <div class="sb-pill" style="border-color:#64748b33;color:#64748b;">Not set: <strong>${tickets.length - setTotal}</strong> (${pct(tickets.length - setTotal, tickets.length)}%)</div>
         </div>
       </div>
-      <div style="font-size:12px;color:var(--muted);margin-bottom:12px;">Pending tickets only · respects the header filters · click any number to view tickets</div>
-
-      <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:20px;">${pills}</div>
-
-      <div style="background:var(--surface);border:1px solid var(--border);border-radius:14px;overflow:hidden;">
-        <table style="width:100%;border-collapse:collapse;">
-          <thead>
-            <tr style="background:var(--surface2);border-bottom:1px solid var(--border);">
-              <th style="padding:10px 16px;text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">Internal Status</th>
-              ${PRIOS.map((p, pi) => `<th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:${PRIO_COLORS[pi]};">${p}</th>`).join('')}
-              <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:#ef4444;">SLA Breached</th>
-              <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">Total</th>
-              <th style="padding:10px 16px;text-align:center;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);">%</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHTML}
-            <tr style="background:var(--surface2);border-top:2px solid var(--border2);">
-              <td style="padding:12px 16px;font-size:14px;font-weight:700;color:var(--text);">Total</td>
-              ${totByP}
-              ${numCell('tot_br', 'All — SLA Breached', totBreached.length, '#ef4444', true)}
-              ${numCell('total', 'All pending tickets', tickets.length, 'var(--accent)', true)}
-              <td style="padding:12px 16px;text-align:center;font-size:12px;font-weight:700;color:var(--muted);">100%</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:16px;">Pending tickets only · one breakup per product (plus all products combined) · respects the header filters · click any number to view tickets</div>
+      ${sections}
     </div>`;
 }
 
